@@ -1,12 +1,17 @@
 import React from 'react';
-import Image from 'next/image';
-
-import AppStoreButton from './AppStoreButton';
-import PlayStoreButton from './PlayStoreButton';
+import Link from 'next/link';
+import { HiArrowRight } from 'react-icons/hi2';
 
 import { heroDetails } from '@/data/hero';
 
 const Hero: React.FC = () => {
+    const inputDocuments = ['Repair order PDF', 'Scanned customer form', 'Vendor invoice'];
+    const extractedFields = [
+        ['customer_name', 'Maria Nguyen'],
+        ['document_type', 'Repair order'],
+        ['total_amount', '$428.60'],
+    ];
+
     return (
         <section
             id="hero"
@@ -20,24 +25,71 @@ const Hero: React.FC = () => {
             <div className="absolute left-0 right-0 bottom-0 backdrop-blur-[2px] h-40 bg-gradient-to-b from-transparent via-[rgba(233,238,255,0.5)] to-[rgba(202,208,230,0.5)]">
             </div>
 
-            <div className="text-center">
-                <h1 className="text-4xl md:text-6xl md:leading-tight font-bold text-foreground max-w-lg md:max-w-2xl mx-auto">{heroDetails.heading}</h1>
-                <p className="mt-4 text-foreground max-w-lg mx-auto">{heroDetails.subheading}</p>
-                <div className="mt-6 flex flex-col sm:flex-row items-center sm:gap-4 w-fit mx-auto">
-                    <AppStoreButton dark />
-                    <PlayStoreButton dark />
+            <div className="w-full max-w-6xl text-center">
+                <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-secondary">{heroDetails.eyebrow}</p>
+                <h1 className="text-4xl md:text-6xl md:leading-tight font-bold text-foreground max-w-lg md:max-w-3xl mx-auto">{heroDetails.heading}</h1>
+                <p className="mt-4 text-foreground-accent max-w-2xl mx-auto">{heroDetails.subheading}</p>
+                <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
+                    <Link href={heroDetails.primaryCta.href} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-semibold text-black transition-colors hover:bg-primary-accent">
+                        {heroDetails.primaryCta.text}
+                        <HiArrowRight aria-hidden="true" />
+                    </Link>
+                    <Link href={heroDetails.secondaryCta.href} className="inline-flex items-center justify-center rounded-full border border-gray-300 bg-white px-7 py-3 font-semibold text-foreground transition-colors hover:border-secondary hover:text-secondary">
+                        {heroDetails.secondaryCta.text}
+                    </Link>
                 </div>
-                <Image
-                    src={heroDetails.centerImageSrc}
-                    width={384}
-                    height={340}
-                    quality={100}
-                    sizes="(max-width: 768px) 100vw, 384px"
-                    priority={true}
-                    unoptimized={true}
-                    alt="app mockup"
-                    className='relative mt-12 md:mt-16 mx-auto z-10'
-                />
+
+                <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-2xl md:mt-16">
+                    <div className="flex flex-col gap-3 border-b border-gray-200 bg-hero-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                            <p className="text-sm font-semibold text-secondary">Document intake</p>
+                            <p className="text-sm text-foreground-accent">AI extraction with staff review</p>
+                        </div>
+                        <div className="flex w-fit items-center gap-2 rounded-full bg-white px-3 py-1 text-sm text-foreground-accent">
+                            <span className="h-2 w-2 rounded-full bg-primary"></span>
+                            Ready for review
+                        </div>
+                    </div>
+
+                    <div className="grid gap-0 lg:grid-cols-[1fr_0.75fr_1fr]">
+                        <div className="p-5 md:p-7">
+                            <p className="text-sm font-semibold uppercase tracking-wide text-foreground-accent">Input files</p>
+                            <div className="mt-5 space-y-3">
+                                {inputDocuments.map((documentName) => (
+                                    <div key={documentName} className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+                                        <span className="font-semibold text-foreground">{documentName}</span>
+                                        <span className="text-sm text-foreground-accent">Queued</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="border-y border-gray-200 bg-hero-background p-5 md:p-7 lg:border-x lg:border-y-0">
+                            <p className="text-sm font-semibold uppercase tracking-wide text-foreground-accent">AI pass</p>
+                            <div className="mt-5 space-y-4 text-sm text-foreground-accent">
+                                <p className="rounded-xl bg-white p-4">Detects document type, tables, totals, customer fields, and low-confidence values.</p>
+                                <p className="rounded-xl bg-white p-4">Routes uncertain fields to a human review step before export.</p>
+                            </div>
+                        </div>
+
+                        <div className="p-5 md:p-7">
+                            <p className="text-sm font-semibold uppercase tracking-wide text-foreground-accent">Structured output</p>
+                            <div className="mt-5 overflow-hidden rounded-xl border border-gray-200">
+                                {extractedFields.map(([field, value]) => (
+                                    <div key={field} className="grid grid-cols-[1fr_1.1fr] border-b border-gray-200 last:border-b-0">
+                                        <span className="bg-hero-background px-4 py-3 font-mono text-sm text-foreground-accent">{field}</span>
+                                        <span className="px-4 py-3 font-semibold text-foreground">{value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-4 flex flex-wrap gap-2 text-sm font-semibold">
+                                <span className="rounded-full bg-hero-background px-3 py-1 text-foreground-accent">Excel</span>
+                                <span className="rounded-full bg-hero-background px-3 py-1 text-foreground-accent">JSON</span>
+                                <span className="rounded-full bg-hero-background px-3 py-1 text-foreground-accent">Internal systems</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </section>
     );

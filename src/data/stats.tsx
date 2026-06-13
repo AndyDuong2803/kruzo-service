@@ -1,22 +1,22 @@
-import { BsBarChartFill, BsFillStarFill } from "react-icons/bs";
-import { PiGlobeFill } from "react-icons/pi";
+import { BsBarChartFill, BsFillCheckCircleFill } from "react-icons/bs";
+import { PiFileJsFill } from "react-icons/pi";
 
 import { IStats } from "@/types";
 
 export const stats: IStats[] = [
     {
-        title: "20M+",
+        title: "AI first",
         icon: <BsBarChartFill size={34} className="text-blue-500" />,
-        description: "Transactions processed securely every day, providing real-time insights."
+        description: "Documents are read by AI before staff review the extracted fields."
     },
     {
-        title: "5.0",
-        icon: <BsFillStarFill size={34} className="text-yellow-500" />,
-        description: "Star rating, consistently maintained across app stores."
+        title: "Review",
+        icon: <BsFillCheckCircleFill size={34} className="text-green-600" />,
+        description: "Uncertain values stay visible so teams can check before export."
     },
     {
-        title: "200+ ",
-        icon: <PiGlobeFill size={34} className="text-green-600" />,
-        description: "Financial Institutions, seamlessly integrated, so you can manage all accounts."
+        title: "Excel / JSON",
+        icon: <PiFileJsFill size={34} className="text-slate-700" />,
+        description: "Structured output can match spreadsheets, JSON payloads, or internal fields."
     }
 ];

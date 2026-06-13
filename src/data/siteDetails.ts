@@ -1,9 +1,9 @@
 export const siteDetails = {
-    siteName: 'Finwise',
-    siteUrl: 'https://finwise-omega.vercel.app/',
+    siteName: 'Kruzo Document AI',
+    siteUrl: process.env.NEXT_PUBLIC_SITE_URL || 'https://kruzo-document-ai-web.vercel.app/',
     metadata: {
-        title: 'Finwise - Next.js and Tailwind CSS Landing Page Template',
-        description: 'Finwise empowers businesses with cutting-edge technology solutions to drive success and efficiency.',
+        title: 'Kruzo Document AI - AI Document Automation for Service Businesses',
+        description: 'Extract data from PDFs, scanned forms, invoices, repair documents, and customer files into Excel, JSON, or internal systems using AI.',
     },
     language: 'en-us',
     locale: 'en-US',

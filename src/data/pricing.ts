@@ -2,36 +2,33 @@ import { IPricing } from "@/types";
 
 export const tiers: IPricing[] = [
     {
-        name: 'Starter',
-        price: 29,
+        name: 'Workflow Audit',
+        price: 'Free',
         features: [
-            'Basic cloud integration',
-            'Up to 5 team members',
-            '20GB storage',
-            'Email support',
+            'Document type review',
+            'Field mapping outline',
+            'Human review points',
+            'Export format recommendation',
         ],
     },
     {
-        name: 'Pro',
-        price: 99,
-        features: [
-            'Advanced cloud integration',
-            'Up to 20 team members',
-            '100GB storage',
-            'Priority email & phone support',
-            'Advanced analytics',
-        ],
-    },
-    {
-        name: 'Enterprise',
+        name: 'Pilot Workflow',
         price: 'Custom',
         features: [
-            'Full cloud integration',
-            'Unlimited team members',
-            'Unlimited storage',
-            '24/7 dedicated support',
-            'Custom solutions',
-            'On-site training',
+            'Sample document processing',
+            'Excel or JSON output mapping',
+            'Review queue setup',
+            'Internal handoff planning',
+        ],
+    },
+    {
+        name: 'Custom Automation',
+        price: 'Custom',
+        features: [
+            'Multiple document types',
+            'Internal system mapping',
+            'Exception handling rules',
+            'Team workflow support',
         ],
     },
 ]

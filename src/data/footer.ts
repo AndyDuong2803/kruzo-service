@@ -3,35 +3,41 @@ import { IMenuItem, ISocials } from "@/types";
 export const footerDetails: {
     subheading: string;
     quickLinks: IMenuItem[];
+    ctaLinks: IMenuItem[];
     email: string;
     telephone: string;
     socials: ISocials;
 } = {
-    subheading: "Empowering businesses with cutting-edge financial technology solutions.",
+    subheading: "AI document automation that turns service-business files into reviewable, structured data.",
     quickLinks: [
         {
-            text: "Features",
-            url: "#features"
+            text: "Problem",
+            url: "#problem"
         },
         {
-            text: "Pricing",
-            url: "#pricing"
+            text: "Workflow",
+            url: "#workflow"
         },
         {
-            text: "Testimonials",
-            url: "#testimonials"
+            text: "Use Cases",
+            url: "#use-cases"
+        },
+        {
+            text: "FAQ",
+            url: "#faq"
         }
     ],
-    email: 'address@yoursite.com',
-    telephone: '+1 (123) 456-7890',
-    socials: {
-        // github: 'https://github.com',
-        // x: 'https://twitter.com/x',
-        twitter: 'https://twitter.com/Twitter',
-        facebook: 'https://facebook.com',
-        // youtube: 'https://youtube.com',
-        linkedin: 'https://www.linkedin.com',
-        // threads: 'https://www.threads.net',
-        instagram: 'https://www.instagram.com',
-    }
+    ctaLinks: [
+        {
+            text: "Try Demo",
+            url: "/try"
+        },
+        {
+            text: "Get Free Workflow Audit",
+            url: "/audit"
+        }
+    ],
+    email: '',
+    telephone: '',
+    socials: {}
 }

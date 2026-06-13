@@ -1,6 +1,12 @@
 export const ctaDetails = {
-    heading: 'Join Over 1 Million Users To Transform Your Finances',
-    subheading: 'Your journey to financial freedom starts here. Download Finwise today and take the first step towards a brighter financial future!',
-    appStoreUrl: '#',
-    googlePlayUrl: '#'
+    heading: 'Start with a free workflow audit',
+    subheading: 'Share the documents your team handles today. We map the fields, review points, and export format before you build the automation.',
+    primaryCta: {
+        text: 'Get Free Workflow Audit',
+        href: '/audit',
+    },
+    secondaryCta: {
+        text: 'Try Demo',
+        href: '/try',
+    },
 }

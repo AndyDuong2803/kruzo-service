@@ -1,7 +1,7 @@
 import { ctaDetails } from "@/data/cta"
-
-import AppStoreButton from "./AppStoreButton"
-import PlayStoreButton from "./PlayStoreButton"
+import { auditHighlights } from "@/data/landing"
+import Link from "next/link"
+import { HiArrowRight } from "react-icons/hi2"
 
 const CTA: React.FC = () => {
     return (
@@ -17,9 +17,24 @@ const CTA: React.FC = () => {
 
                         <p className="mx-auto max-w-xl md:px-5">{ctaDetails.subheading}</p>
 
-                        <div className="mt-4 flex flex-col sm:flex-row items-center sm:gap-4">
-                        <AppStoreButton />
-                        <PlayStoreButton />
+                        <div className="mt-8 grid w-full max-w-3xl gap-3 sm:grid-cols-3">
+                            {auditHighlights.map((item) => (
+                                <div key={item.title} className="rounded-xl border border-white/15 bg-white/5 p-4 text-left">
+                                    <div className="mb-3 text-primary">{item.icon}</div>
+                                    <h3 className="text-base font-semibold">{item.title}</h3>
+                                    <p className="mt-1 text-sm text-white/75">{item.description}</p>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="mt-8 flex flex-col sm:flex-row items-center gap-3 sm:gap-4">
+                            <Link href={ctaDetails.primaryCta.href} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-semibold text-black transition-colors hover:bg-primary-accent">
+                                {ctaDetails.primaryCta.text}
+                                <HiArrowRight aria-hidden="true" />
+                            </Link>
+                            <Link href={ctaDetails.secondaryCta.href} className="inline-flex items-center justify-center rounded-full border border-white/25 px-7 py-3 font-semibold text-white transition-colors hover:border-primary hover:text-primary">
+                                {ctaDetails.secondaryCta.text}
+                            </Link>
                         </div>
                     </div>
                 </div>

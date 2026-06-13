@@ -1,5 +1,6 @@
 "use client"
 import { Disclosure, DisclosureButton, DisclosurePanel } from "@headlessui/react";
+import Link from "next/link";
 import { BiMinus, BiPlus } from "react-icons/bi";
 
 import SectionTitle from "./SectionTitle";
@@ -15,9 +16,9 @@ const FAQ: React.FC = () => {
                         <h2 className="my-3 !leading-snug lg:max-w-sm text-center lg:text-left">Frequently Asked Questions</h2>
                     </SectionTitle>
                     <p className="lg:mt-10 text-foreground-accent text-center lg:text-left">
-                        Ask us anything!
+                        Have a document workflow to review?
                     </p>
-                    <a href="mailto:" className="mt-3 block text-xl lg:text-4xl text-secondary font-semibold hover:underline text-center lg:text-left">help@finwise.com</a>
+                    <Link href="/audit" className="mt-3 block text-xl lg:text-4xl text-secondary font-semibold hover:underline text-center lg:text-left">Get a free workflow audit</Link>
                 </div>
 
                 <div className="w-full lg:max-w-2xl mx-auto border-b">

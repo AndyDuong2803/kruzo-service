@@ -1,5 +1,13 @@
 export const heroDetails = {
-    heading: 'Smart, Secure, Simple Financial Management',
-    subheading: 'From effortless budgeting to real-time investment insights, Finwise puts you in control of your money like never before',
-    centerImageSrc: '/images/hero-mockup.webp',
+    eyebrow: 'AI Document Automation for Service Businesses',
+    heading: 'Turn documents into structured data with AI',
+    subheading: 'Extract data from PDFs, scanned forms, invoices, repair documents, and customer files into Excel, JSON, or internal systems using AI.',
+    primaryCta: {
+        text: 'Try Demo',
+        href: '/try',
+    },
+    secondaryCta: {
+        text: 'Get Free Workflow Audit',
+        href: '/audit',
+    },
 }
