@@ -11,6 +11,7 @@ const Hero: React.FC = () => {
         ['document_type', 'Repair order'],
         ['total_amount', '$428.60'],
     ];
+    const animationDelay = (delay: number) => ({ "--animation-delay": `${delay}ms` } as React.CSSProperties);
 
     return (
         <section
@@ -26,20 +27,21 @@ const Hero: React.FC = () => {
             </div>
 
             <div className="w-full max-w-6xl text-center">
-                <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-secondary">{heroDetails.eyebrow}</p>
-                <h1 className="text-4xl md:text-6xl md:leading-tight font-bold text-foreground max-w-lg md:max-w-3xl mx-auto">{heroDetails.heading}</h1>
-                <p className="mt-4 text-foreground-accent max-w-2xl mx-auto">{heroDetails.subheading}</p>
-                <div className="mt-7 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
-                    <Link href={heroDetails.primaryCta.href} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-semibold text-black transition-colors hover:bg-primary-accent">
+                <p className="animate-fade-up mb-4 text-sm font-semibold uppercase tracking-wide text-secondary" style={animationDelay(40)}>{heroDetails.eyebrow}</p>
+                <h1 className="animate-fade-up text-4xl md:text-6xl md:leading-tight font-bold text-foreground max-w-lg md:max-w-3xl mx-auto" style={animationDelay(120)}>{heroDetails.heading}</h1>
+                <p className="animate-fade-up mt-4 text-foreground-accent max-w-2xl mx-auto" style={animationDelay(200)}>{heroDetails.subheading}</p>
+                <div className="animate-fade-up mt-7 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4" style={animationDelay(280)}>
+                    <Link href={heroDetails.primaryCta.href} className="button-pop inline-flex items-center justify-center gap-2 rounded-full bg-primary px-7 py-3 font-semibold text-black transition-colors hover:bg-primary-accent">
                         {heroDetails.primaryCta.text}
                         <HiArrowRight aria-hidden="true" />
                     </Link>
-                    <Link href={heroDetails.secondaryCta.href} className="inline-flex items-center justify-center rounded-full border border-gray-300 bg-white px-7 py-3 font-semibold text-foreground transition-colors hover:border-secondary hover:text-secondary">
+                    <Link href={heroDetails.secondaryCta.href} className="button-pop inline-flex items-center justify-center rounded-full border border-gray-300 bg-white px-7 py-3 font-semibold text-foreground transition-colors hover:border-secondary hover:text-secondary">
                         {heroDetails.secondaryCta.text}
                     </Link>
                 </div>
 
-                <div className="relative z-10 mx-auto mt-12 w-full max-w-5xl overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-2xl md:mt-16">
+                <div className="animate-fade-up relative z-10 mx-auto mt-12 w-full max-w-5xl md:mt-16" style={animationDelay(380)}>
+                    <div className="soft-glow animate-float-slow overflow-hidden rounded-2xl border border-gray-200 bg-white text-left shadow-2xl">
                     <div className="flex flex-col gap-3 border-b border-gray-200 bg-hero-background px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <p className="text-sm font-semibold text-secondary">Document intake</p>
@@ -89,6 +91,7 @@ const Hero: React.FC = () => {
                             </div>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         </section>
