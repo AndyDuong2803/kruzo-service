@@ -22,6 +22,10 @@ const appNavItems = [
         url: "/try/api"
     },
     {
+        text: "API Keys",
+        url: "/api-keys"
+    },
+    {
         text: "Pricing",
         url: "/pricing"
     },
@@ -164,7 +168,7 @@ const Header: React.FC = () => {
                         </div>
                     ) : (
                         <div className="hidden items-center gap-4 lg:flex">
-                            <ul className="flex items-center space-x-5">
+                            <ul className="flex items-center space-x-4">
                                 {appNavItems.map(item => (
                                     <li key={item.text}>
                                         <Link

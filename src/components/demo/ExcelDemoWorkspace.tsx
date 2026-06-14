@@ -92,6 +92,36 @@ const buildCsv = () => {
   return csvRows.join("\n");
 };
 
+const getPrefersReducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const scrollTourTargetIntoView = (target: TourTarget) => {
+  const element = document.querySelector<HTMLElement>(`[data-tour-target="${target}"]`);
+
+  if (!element) {
+    return false;
+  }
+
+  const headerHeight = document.querySelector("header")?.getBoundingClientRect().height ?? 80;
+  const comfortOffset = headerHeight + 24;
+  const rect = element.getBoundingClientRect();
+  const viewportHeight = window.innerHeight;
+  const isComfortablyVisible = rect.top >= comfortOffset && rect.bottom <= viewportHeight - 120;
+
+  if (isComfortablyVisible) {
+    return true;
+  }
+
+  const targetY = window.scrollY + rect.top - Math.max(comfortOffset, (viewportHeight - rect.height) / 2);
+
+  window.scrollTo({
+    top: Math.max(0, targetY),
+    behavior: getPrefersReducedMotion() ? "auto" : "smooth",
+  });
+
+  return true;
+};
+
 const ExcelDemoWorkspace: React.FC = () => {
   const [fileName, setFileName] = useState("");
   const [documentType, setDocumentType] = useState(documentTypes[0]);
@@ -112,6 +142,22 @@ const ExcelDemoWorkspace: React.FC = () => {
       setTourOpen(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!tourOpen) {
+      return;
+    }
+
+    const scrollFrame = window.requestAnimationFrame(() => {
+      const foundTarget = scrollTourTargetIntoView(currentTourStep.target);
+
+      if (!foundTarget) {
+        setPreviewMessage("Guide target is not visible yet. You can continue with the next step.");
+      }
+    });
+
+    return () => window.cancelAnimationFrame(scrollFrame);
+  }, [currentTourStep.target, tourOpen]);
 
   const activeTargetClass = (target: TourTarget) =>
     clsx(tourOpen && currentTourStep.target === target && "guided-target-active");
@@ -207,7 +253,10 @@ const ExcelDemoWorkspace: React.FC = () => {
 
           <div className="grid min-w-0 gap-5 xl:grid-cols-[0.92fr_1.08fr]">
             <div className="min-w-0 space-y-5">
-              <div className={clsx("brand-card min-w-0 rounded-2xl p-5 md:p-6", activeTargetClass("upload"))}>
+              <div
+                data-tour-target="upload"
+                className={clsx("brand-card min-w-0 rounded-2xl p-5 md:p-6", activeTargetClass("upload"))}
+              >
                 <div className="rounded-2xl border-2 border-dashed border-border bg-card-muted p-6 text-center md:p-8">
                   <div className="brand-icon mx-auto flex h-16 w-16 items-center justify-center rounded-full">
                     <FiUploadCloud size={30} aria-hidden="true" />
@@ -237,7 +286,10 @@ const ExcelDemoWorkspace: React.FC = () => {
               </div>
 
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-1">
-                <div className={clsx("brand-card rounded-2xl p-5", activeTargetClass("documentType"))}>
+                <div
+                  data-tour-target="documentType"
+                  className={clsx("brand-card rounded-2xl p-5", activeTargetClass("documentType"))}
+                >
                   <div className="mb-4 flex items-center gap-3">
                     <FiFileText className="text-secondary" size={22} aria-hidden="true" />
                     <h2 className="text-xl font-semibold">Document type</h2>
@@ -262,7 +314,10 @@ const ExcelDemoWorkspace: React.FC = () => {
                   </div>
                 </div>
 
-                <div className={clsx("brand-card rounded-2xl p-5", activeTargetClass("template"))}>
+                <div
+                  data-tour-target="template"
+                  className={clsx("brand-card rounded-2xl p-5", activeTargetClass("template"))}
+                >
                   <div className="mb-4 flex items-center gap-3">
                     <FiGrid className="text-secondary" size={22} aria-hidden="true" />
                     <h2 className="text-xl font-semibold">Excel template</h2>
@@ -295,7 +350,7 @@ const ExcelDemoWorkspace: React.FC = () => {
                   <p className="text-sm font-semibold text-secondary">Excel-ready preview</p>
                   <p className="text-sm text-muted">{previewMessage}</p>
                 </div>
-                <div className={activeTargetClass("previewButton")}>
+                <div data-tour-target="previewButton" className={activeTargetClass("previewButton")}>
                   <button
                     type="button"
                     className="brand-button brand-button-primary button-pop gap-2 px-5 py-2.5"
@@ -322,7 +377,10 @@ const ExcelDemoWorkspace: React.FC = () => {
                   ))}
                 </div>
 
-                <div className={clsx("overflow-hidden rounded-xl border border-border", activeTargetClass("table"))}>
+                <div
+                  data-tour-target="table"
+                  className={clsx("overflow-hidden rounded-xl border border-border", activeTargetClass("table"))}
+                >
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[680px] border-collapse text-left text-sm">
                       <thead className="bg-card-muted text-muted">
@@ -363,7 +421,10 @@ const ExcelDemoWorkspace: React.FC = () => {
                   </div>
                 </div>
 
-                <div className={clsx("mt-6 grid gap-3 sm:grid-cols-2", activeTargetClass("export"))}>
+                <div
+                  data-tour-target="export"
+                  className={clsx("mt-6 grid gap-3 sm:grid-cols-2", activeTargetClass("export"))}
+                >
                   <button
                     type="button"
                     className="brand-button brand-button-secondary button-pop gap-2 px-5 py-2.5"

@@ -22,6 +22,10 @@ export const footerDetails: {
             url: "/try/api"
         },
         {
+            text: "API Keys",
+            url: "/api-keys"
+        },
+        {
             text: "Pricing",
             url: "/pricing"
         },
@@ -42,6 +46,10 @@ export const footerDetails: {
         {
             text: "API Playground",
             url: "/try/api"
+        },
+        {
+            text: "API Keys",
+            url: "/api-keys"
         },
         {
             text: "Free Workflow Audit",

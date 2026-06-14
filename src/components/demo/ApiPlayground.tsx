@@ -1,16 +1,21 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { FiCheckCircle, FiCopy, FiSend } from "react-icons/fi";
 
 import Container from "@/components/Container";
 
 type SendState = "idle" | "loading" | "success" | "error";
+type PlaygroundTab = "request" | "curl" | "javascript" | "python" | "response";
 
 const fallbackApiBaseUrl = "https://api.document-ai.kruzo.tech";
 const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
 const apiBaseUrl = configuredApiBaseUrl || fallbackApiBaseUrl;
+const endpoint = `${apiBaseUrl}/documents/extract`;
+const apiKeyStorageKey = "kruzo-playground-api-key";
+const rememberStorageKey = "kruzo-playground-remember-key";
 
 const documentTypes = ["auto", "invoice", "repair_order", "customer_form", "scanned_form"];
 const outputFormats = ["json", "key_value", "table"];
@@ -40,16 +45,8 @@ const buildSampleResponse = (documentType: string, language: string) => ({
     {
       name: "line_items",
       rows: [
-        {
-          item: "Oil change",
-          qty: 1,
-          amount: "89.00",
-        },
-        {
-          item: "Brake inspection",
-          qty: 1,
-          amount: "120.00",
-        },
+        { item: "Oil change", qty: 1, amount: "89.00" },
+        { item: "Brake inspection", qty: 1, amount: "120.00" },
       ],
     },
   ],
@@ -59,12 +56,22 @@ const buildSampleResponse = (documentType: string, language: string) => ({
   },
 });
 
+const tabs: { id: PlaygroundTab; label: string }[] = [
+  { id: "request", label: "Request" },
+  { id: "curl", label: "cURL" },
+  { id: "javascript", label: "JavaScript" },
+  { id: "python", label: "Python" },
+  { id: "response", label: "Response" },
+];
+
 const FieldLabel: React.FC<React.PropsWithChildren> = ({ children }) => (
   <label className="text-sm font-semibold text-foreground">{children}</label>
 );
 
 const ApiPlayground: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
+  const [apiKey, setApiKey] = useState("");
+  const [rememberKey, setRememberKey] = useState(false);
   const [documentType, setDocumentType] = useState("auto");
   const [outputFormat, setOutputFormat] = useState("json");
   const [language, setLanguage] = useState("auto");
@@ -72,20 +79,71 @@ const ApiPlayground: React.FC = () => {
   const [includeRawText, setIncludeRawText] = useState(false);
   const [humanReview, setHumanReview] = useState(true);
   const [sendState, setSendState] = useState<SendState>("idle");
-  const [message, setMessage] = useState("Sample response is shown until a real API request succeeds.");
+  const [message, setMessage] = useState("Sample response remains visible until a real request succeeds.");
   const [responsePreview, setResponsePreview] = useState<unknown | null>(null);
   const [copiedLabel, setCopiedLabel] = useState("");
+  const [activeTab, setActiveTab] = useState<PlaygroundTab>("request");
 
-  const requestUrl = `${apiBaseUrl}/documents/extract`;
+  useEffect(() => {
+    try {
+      const shouldRemember = localStorage.getItem(rememberStorageKey) === "true";
+      setRememberKey(shouldRemember);
+
+      if (shouldRemember) {
+        setApiKey(localStorage.getItem(apiKeyStorageKey) ?? "");
+      }
+    } catch {
+      setRememberKey(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (rememberKey) {
+        localStorage.setItem(rememberStorageKey, "true");
+        localStorage.setItem(apiKeyStorageKey, apiKey);
+      } else {
+        localStorage.removeItem(rememberStorageKey);
+        localStorage.removeItem(apiKeyStorageKey);
+      }
+    } catch {
+      // Storage can be unavailable in private contexts.
+    }
+  }, [apiKey, rememberKey]);
+
+  const authValue = apiKey || "YOUR_API_KEY";
   const sampleResponse = useMemo(() => buildSampleResponse(documentType, language), [documentType, language]);
   const visibleResponse = responsePreview ?? sampleResponse;
   const responseJson = JSON.stringify(visibleResponse, null, 2);
 
+  const selectedParams = useMemo(() => ({
+    document_type: documentType,
+    output_format: outputFormat,
+    language,
+    include_confidence: includeConfidence,
+    include_raw_text: includeRawText,
+    human_review: humanReview,
+  }), [documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+
+  const requestSummary = useMemo(() => {
+    const params = Object.entries(selectedParams)
+      .map(([key, value]) => `  ${key}: ${value}`)
+      .join("\n");
+
+    return `Method: POST
+URL: ${endpoint}
+Content-Type: multipart/form-data
+File: ${file?.name || "repair-order.pdf"}
+
+Parameters:
+${params}`;
+  }, [file?.name, selectedParams]);
+
   const curlCommand = useMemo(() => {
     const filePart = file?.name ? file.name : "repair-order.pdf";
 
-    return `curl -X POST "${requestUrl}" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
+    return `curl -X POST "${endpoint}" \\
+  -H "Authorization: Bearer ${authValue}" \\
   -F "file=@${filePart}" \\
   -F "document_type=${documentType}" \\
   -F "output_format=${outputFormat}" \\
@@ -93,10 +151,9 @@ const ApiPlayground: React.FC = () => {
   -F "include_confidence=${includeConfidence}" \\
   -F "include_raw_text=${includeRawText}" \\
   -F "human_review=${humanReview}"`;
-  }, [documentType, file?.name, humanReview, includeConfidence, includeRawText, language, outputFormat, requestUrl]);
+  }, [authValue, documentType, file?.name, humanReview, includeConfidence, includeRawText, language, outputFormat]);
 
-  const fetchExample = useMemo(() => {
-    return `const formData = new FormData();
+  const fetchExample = useMemo(() => `const formData = new FormData();
 formData.append("file", fileInput.files[0]);
 formData.append("document_type", "${documentType}");
 formData.append("output_format", "${outputFormat}");
@@ -105,45 +162,78 @@ formData.append("include_confidence", "${includeConfidence}");
 formData.append("include_raw_text", "${includeRawText}");
 formData.append("human_review", "${humanReview}");
 
-const response = await fetch("${requestUrl}", {
+const response = await fetch("${endpoint}", {
   method: "POST",
   headers: {
-    Authorization: "Bearer YOUR_API_KEY",
+    Authorization: "Bearer ${authValue}",
   },
   body: formData,
 });
 
-const result = await response.json();`;
-  }, [documentType, humanReview, includeConfidence, includeRawText, language, outputFormat, requestUrl]);
+const result = await response.json();`, [authValue, documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+
+  const pythonExample = useMemo(() => `import requests
+
+with open("repair-order.pdf", "rb") as file:
+    response = requests.post(
+        "${endpoint}",
+        headers={"Authorization": "Bearer ${authValue}"},
+        files={"file": file},
+        data={
+            "document_type": "${documentType}",
+            "output_format": "${outputFormat}",
+            "language": "${language}",
+            "include_confidence": "${includeConfidence}",
+            "include_raw_text": "${includeRawText}",
+            "human_review": "${humanReview}",
+        },
+    )
+
+result = response.json()`, [authValue, documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+
+  const activeContent = {
+    request: requestSummary,
+    curl: curlCommand,
+    javascript: fetchExample,
+    python: pythonExample,
+    response: responseJson,
+  }[activeTab];
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0] ?? null;
     setFile(selectedFile);
-    setMessage(selectedFile ? `${selectedFile.name} selected.` : "Sample response is shown until a real API request succeeds.");
+    setMessage(selectedFile ? `${selectedFile.name} selected.` : "Sample response remains visible until a real request succeeds.");
   };
 
-  const copyText = async (label: string, value: string) => {
+  const copyActiveTab = async () => {
     try {
-      await navigator.clipboard.writeText(value);
-      setCopiedLabel(label);
+      await navigator.clipboard.writeText(activeContent);
+      setCopiedLabel(activeTab);
       window.setTimeout(() => setCopiedLabel(""), 1400);
     } catch {
-      setMessage("Copy failed in this browser. You can still select the code manually.");
+      setMessage("Copy failed in this browser. You can still select the text manually.");
     }
   };
 
   const sendRequest = async () => {
     setResponsePreview(null);
+    setActiveTab("response");
 
-    if (!configuredApiBaseUrl) {
+    if (!apiKey.trim()) {
       setSendState("error");
-      setMessage("NEXT_PUBLIC_API_BASE_URL is not configured locally. Showing the sample response.");
+      setMessage("Enter an API key before sending. Sample response remains visible.");
       return;
     }
 
     if (!file) {
       setSendState("error");
-      setMessage("Choose a PDF, JPG, or PNG before sending a real request. Sample response remains visible.");
+      setMessage("Choose a PDF, JPG, or PNG before sending. Sample response remains visible.");
+      return;
+    }
+
+    if (!configuredApiBaseUrl) {
+      setSendState("error");
+      setMessage("NEXT_PUBLIC_API_BASE_URL is not configured locally. Showing the sample response.");
       return;
     }
 
@@ -160,10 +250,10 @@ const result = await response.json();`;
     setMessage("Sending test request...");
 
     try {
-      const response = await fetch(requestUrl, {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
-          Authorization: "Bearer YOUR_API_KEY",
+          Authorization: `Bearer ${apiKey}`,
         },
         body: formData,
       });
@@ -191,7 +281,7 @@ const result = await response.json();`;
             <p className="text-sm font-semibold uppercase tracking-wide text-secondary">Developer tool</p>
             <h1 className="mt-2 text-3xl font-bold text-foreground md:text-5xl">API Playground</h1>
             <p className="mt-3 text-muted">
-              Configure extraction options, send a test request, and inspect the JSON response.
+              Configure extraction options and test the document extraction API.
             </p>
           </div>
 
@@ -199,14 +289,30 @@ const result = await response.json();`;
             <div className="brand-card min-w-0 rounded-2xl p-5 md:p-6">
               <div className="mb-5">
                 <p className="text-sm font-semibold text-secondary">Request configuration</p>
-                <p className="text-sm text-muted">Endpoint: POST /documents/extract</p>
+                <p className="text-sm text-muted">POST /documents/extract</p>
               </div>
 
               <div className="grid gap-4">
                 <div className="grid gap-2">
-                  <FieldLabel>Base URL</FieldLabel>
-                  <div className="rounded-xl border border-border bg-card-muted px-4 py-3 font-mono text-sm">
-                    {apiBaseUrl}
+                  <FieldLabel>API key</FieldLabel>
+                  <input
+                    type="password"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder="kruzo_sk_..."
+                    className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm"
+                  />
+                  <div className="flex flex-col gap-2 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
+                    <label className="inline-flex items-center gap-2 font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={rememberKey}
+                        onChange={(event) => setRememberKey(event.target.checked)}
+                        className="h-4 w-4 accent-[var(--primary)]"
+                      />
+                      Remember locally
+                    </label>
+                    <Link href="/api-keys" className="nav-link font-semibold">Manage API keys</Link>
                   </div>
                 </div>
 
@@ -222,67 +328,30 @@ const result = await response.json();`;
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <div className="grid gap-2">
-                    <FieldLabel>document_type</FieldLabel>
-                    <select value={documentType} onChange={(event) => setDocumentType(event.target.value)} className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm">
-                      {documentTypes.map((option) => <option key={option}>{option}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid gap-2">
-                    <FieldLabel>output_format</FieldLabel>
-                    <select value={outputFormat} onChange={(event) => setOutputFormat(event.target.value)} className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm">
-                      {outputFormats.map((option) => <option key={option}>{option}</option>)}
-                    </select>
-                  </div>
-                  <div className="grid gap-2">
-                    <FieldLabel>language</FieldLabel>
-                    <select value={language} onChange={(event) => setLanguage(event.target.value)} className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm">
-                      {languages.map((option) => <option key={option}>{option}</option>)}
-                    </select>
-                  </div>
+                  <SelectField label="document_type" value={documentType} options={documentTypes} onChange={setDocumentType} />
+                  <SelectField label="output_format" value={outputFormat} options={outputFormats} onChange={setOutputFormat} />
+                  <SelectField label="language" value={language} options={languages} onChange={setLanguage} />
                 </div>
 
                 <div className="grid gap-3 rounded-2xl border border-border bg-card-muted p-4">
-                  {[
-                    ["include_confidence", includeConfidence, setIncludeConfidence],
-                    ["include_raw_text", includeRawText, setIncludeRawText],
-                    ["human_review", humanReview, setHumanReview],
-                  ].map(([label, value, setter]) => (
-                    <label key={label as string} className="flex items-center justify-between gap-4 text-sm font-semibold">
-                      <span>{label as string}</span>
-                      <input
-                        type="checkbox"
-                        checked={value as boolean}
-                        onChange={(event) => (setter as (next: boolean) => void)(event.target.checked)}
-                        className="h-5 w-5 accent-[var(--primary)]"
-                      />
-                    </label>
-                  ))}
+                  <ToggleField label="include_confidence" checked={includeConfidence} onChange={setIncludeConfidence} />
+                  <ToggleField label="include_raw_text" checked={includeRawText} onChange={setIncludeRawText} />
+                  <ToggleField label="human_review" checked={humanReview} onChange={setHumanReview} />
                 </div>
-              </div>
-            </div>
 
-            <div className="min-w-0 space-y-5">
-              <div className="brand-card rounded-2xl p-5 md:p-6">
-                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-secondary">Request URL</p>
-                    <p className="mt-1 break-all font-mono text-sm text-muted">{requestUrl}</p>
-                  </div>
-                  <button
-                    type="button"
-                    className="brand-button brand-button-primary button-pop gap-2 px-5 py-2.5"
-                    onClick={sendRequest}
-                    disabled={sendState === "loading"}
-                  >
-                    {sendState === "loading" ? "Sending..." : "Send test request"}
-                    <FiSend aria-hidden="true" />
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className="brand-button brand-button-primary button-pop gap-2 px-5 py-2.5"
+                  onClick={sendRequest}
+                  disabled={sendState === "loading"}
+                >
+                  {sendState === "loading" ? "Sending..." : "Send test request"}
+                  <FiSend aria-hidden="true" />
+                </button>
 
                 <p
                   className={clsx(
-                    "mt-4 rounded-xl border px-4 py-3 text-sm",
+                    "rounded-xl border px-4 py-3 text-sm",
                     sendState === "error"
                       ? "border-border bg-card-muted text-muted"
                       : "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary"
@@ -292,10 +361,43 @@ const result = await response.json();`;
                   {message}
                 </p>
               </div>
+            </div>
 
-              <CodePreview title="cURL" code={curlCommand} copied={copiedLabel === "cURL"} onCopy={() => copyText("cURL", curlCommand)} />
-              <CodePreview title="JavaScript fetch" code={fetchExample} copied={copiedLabel === "JavaScript fetch"} onCopy={() => copyText("JavaScript fetch", fetchExample)} />
-              <CodePreview title="JSON response" code={responseJson} copied={copiedLabel === "JSON response"} onCopy={() => copyText("JSON response", responseJson)} />
+            <div className="brand-card min-w-0 overflow-hidden rounded-2xl">
+              <div className="border-b border-border bg-card-muted p-3">
+                <div className="flex gap-2 overflow-x-auto">
+                  {tabs.map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      className={clsx(
+                        "rounded-full px-4 py-2 text-sm font-bold transition-colors",
+                        activeTab === tab.id
+                          ? "bg-[var(--accent-soft)] text-secondary"
+                          : "text-muted hover:bg-card hover:text-foreground"
+                      )}
+                      onClick={() => setActiveTab(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
+                <div>
+                  <p className="text-sm font-semibold text-secondary">{tabs.find((tab) => tab.id === activeTab)?.label}</p>
+                  <p className="text-xs text-muted">{endpoint}</p>
+                </div>
+                <button type="button" className="brand-button brand-button-secondary button-pop gap-2 px-4 py-2 text-sm" onClick={copyActiveTab}>
+                  {copiedLabel === activeTab ? <FiCheckCircle aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
+                  {copiedLabel === activeTab ? "Copied" : "Copy"}
+                </button>
+              </div>
+
+              <pre className="max-h-[640px] min-h-[520px] overflow-auto p-5 text-sm leading-relaxed text-foreground">
+                <code>{activeContent}</code>
+              </pre>
             </div>
           </div>
         </div>
@@ -304,28 +406,38 @@ const result = await response.json();`;
   );
 };
 
-type CodePreviewProps = {
-  title: string;
-  code: string;
-  copied: boolean;
-  onCopy: () => void;
+type SelectFieldProps = {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (nextValue: string) => void;
 };
 
-const CodePreview: React.FC<CodePreviewProps> = ({ title, code, copied, onCopy }) => {
-  return (
-    <div className="brand-card min-w-0 overflow-hidden rounded-2xl">
-      <div className="flex items-center justify-between gap-4 border-b border-border bg-card-muted px-5 py-3">
-        <p className="text-sm font-semibold text-secondary">{title}</p>
-        <button type="button" className="brand-button brand-button-secondary button-pop gap-2 px-4 py-2 text-sm" onClick={onCopy}>
-          {copied ? <FiCheckCircle aria-hidden="true" /> : <FiCopy aria-hidden="true" />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-      <pre className="max-h-[360px] overflow-auto p-5 text-sm leading-relaxed text-foreground">
-        <code>{code}</code>
-      </pre>
-    </div>
-  );
+const SelectField: React.FC<SelectFieldProps> = ({ label, value, options, onChange }) => (
+  <div className="grid gap-2">
+    <FieldLabel>{label}</FieldLabel>
+    <select value={value} onChange={(event) => onChange(event.target.value)} className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm">
+      {options.map((option) => <option key={option}>{option}</option>)}
+    </select>
+  </div>
+);
+
+type ToggleFieldProps = {
+  label: string;
+  checked: boolean;
+  onChange: (nextValue: boolean) => void;
 };
+
+const ToggleField: React.FC<ToggleFieldProps> = ({ label, checked, onChange }) => (
+  <label className="flex items-center justify-between gap-4 text-sm font-semibold">
+    <span>{label}</span>
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+      className="h-5 w-5 accent-[var(--primary)]"
+    />
+  </label>
+);
 
 export default ApiPlayground;
