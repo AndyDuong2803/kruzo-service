@@ -8,6 +8,6 @@ export const heroDetails = {
     },
     secondaryCta: {
         text: 'Get Free Workflow Audit',
-        href: '/audit',
+        href: '/#audit',
     },
 }

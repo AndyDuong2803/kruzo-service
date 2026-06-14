@@ -19,12 +19,12 @@ const HomePage: React.FC = () => {
           <div className="grid gap-5 md:grid-cols-3">
             {problemPoints.map((item, index) => (
               <Reveal key={item.title} delay={index * 70} className="h-full">
-                <div className="hover-lift h-full rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <div className="icon-chip mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-hero-background text-secondary">
+                <div className="brand-card hover-lift h-full rounded-xl p-6">
+                  <div className="brand-icon icon-chip mb-5 flex h-12 w-12 items-center justify-center rounded-full">
                     {item.icon}
                   </div>
                   <h3 className="text-xl font-semibold">{item.title}</h3>
-                  <p className="mt-3 text-foreground-accent">{item.description}</p>
+                  <p className="mt-3 text-muted">{item.description}</p>
                 </div>
               </Reveal>
             ))}
@@ -39,10 +39,10 @@ const HomePage: React.FC = () => {
           <div className="grid gap-5 lg:grid-cols-4">
             {solutionWorkflow.map((step, index) => (
               <Reveal key={step.eyebrow} delay={index * 60} className="h-full">
-                <div className="hover-lift h-full rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+                <div className="brand-card hover-lift h-full rounded-xl p-6">
                   <p className="text-sm font-bold text-secondary">{step.eyebrow}</p>
                   <h3 className="mt-4 text-xl font-semibold">{step.title}</h3>
-                  <p className="mt-3 text-foreground-accent">{step.description}</p>
+                  <p className="mt-3 text-muted">{step.description}</p>
                 </div>
               </Reveal>
             ))}
@@ -57,12 +57,12 @@ const HomePage: React.FC = () => {
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {useCases.map((item, index) => (
               <Reveal key={item.title} delay={(index % 3) * 60} className="h-full">
-                <div className="hover-lift h-full rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-                  <div className="icon-chip mb-5 flex h-11 w-11 items-center justify-center rounded-full bg-hero-background text-secondary">
+                <div className="brand-card hover-lift h-full rounded-xl p-6">
+                  <div className="brand-icon icon-chip mb-5 flex h-11 w-11 items-center justify-center rounded-full">
                     {item.icon}
                   </div>
                   <h3 className="text-xl font-semibold">{item.title}</h3>
-                  <p className="mt-3 text-foreground-accent">{item.description}</p>
+                  <p className="mt-3 text-muted">{item.description}</p>
                 </div>
               </Reveal>
             ))}
@@ -77,10 +77,10 @@ const HomePage: React.FC = () => {
           <div className="grid gap-4 lg:grid-cols-4">
             {howItWorks.map((step, index) => (
               <Reveal key={step.eyebrow} delay={index * 60} className="h-full">
-                <div className="hover-lift h-full border-l-4 border-primary bg-hero-background p-6">
+                <div className="brand-card-muted hover-lift h-full border-l-4 border-l-primary p-6">
                   <p className="text-sm font-bold uppercase tracking-wide text-secondary">{step.eyebrow}</p>
                   <h3 className="mt-4 text-xl font-semibold">{step.title}</h3>
-                  <p className="mt-3 text-foreground-accent">{step.description}</p>
+                  <p className="mt-3 text-muted">{step.description}</p>
                 </div>
               </Reveal>
             ))}

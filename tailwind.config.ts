@@ -13,6 +13,13 @@ const config: Config = {
         foreground: "var(--foreground)",
         primary: "var(--primary)",
         secondary: "var(--secondary)",
+        card: "var(--card)",
+        "card-muted": "var(--card-muted)",
+        border: "var(--border)",
+        muted: "var(--muted)",
+        ink: "var(--kruzo-ink)",
+        surface: "var(--kruzo-surface)",
+        "header-background": "var(--header-background)",
 
         "primary-accent": "var(--primary-accent)",
         "foreground-accent": "var(--foreground-accent)",

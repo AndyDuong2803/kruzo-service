@@ -2,41 +2,53 @@ import { IMenuItem, ISocials } from "@/types";
 
 export const footerDetails: {
     subheading: string;
+    conversionLine: string;
     quickLinks: IMenuItem[];
     ctaLinks: IMenuItem[];
+    contactText: string;
     email: string;
     telephone: string;
     socials: ISocials;
 } = {
     subheading: "AI document automation that turns service-business files into reviewable, structured data.",
+    conversionLine: "Ready to test your document workflow?",
     quickLinks: [
         {
-            text: "Problem",
-            url: "#problem"
+            text: "Excel Demo",
+            url: "/try"
         },
         {
-            text: "Workflow",
-            url: "#workflow"
+            text: "API Playground",
+            url: "/try/api"
         },
         {
-            text: "Use Cases",
-            url: "#use-cases"
+            text: "Pricing",
+            url: "/pricing"
         },
         {
-            text: "FAQ",
-            url: "#faq"
+            text: "Docs",
+            url: "/docs"
+        },
+        {
+            text: "Free Workflow Audit",
+            url: "/#audit"
         }
     ],
     ctaLinks: [
         {
-            text: "Try Demo",
+            text: "Excel Demo",
             url: "/try"
         },
         {
-            text: "Get Free Workflow Audit",
-            url: "/audit"
+            text: "API Playground",
+            url: "/try/api"
+        },
+        {
+            text: "Free Workflow Audit",
+            url: "/#audit"
         }
     ],
+    contactText: "For workflow questions, start with the free audit request and share the document flow you want reviewed.",
     email: '',
     telephone: '',
     socials: {}

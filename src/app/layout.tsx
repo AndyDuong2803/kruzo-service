@@ -11,6 +11,20 @@ import "./globals.css";
 const manrope = Manrope({ subsets: ['latin'] });
 const sourceSans = Source_Sans_3({ subsets: ['latin'] });
 
+const themeInitScript = `
+  (function() {
+    try {
+      var storedTheme = localStorage.getItem('kruzo-theme');
+      var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var shouldUseDark = storedTheme ? storedTheme === 'dark' : prefersDark;
+      document.documentElement.classList.toggle('dark', shouldUseDark);
+      document.documentElement.dataset.theme = shouldUseDark ? 'dark' : 'light';
+    } catch (error) {
+      document.documentElement.dataset.theme = 'light';
+    }
+  })();
+`;
+
 export const metadata: Metadata = {
   metadataBase: new URL(siteDetails.siteUrl),
   title: siteDetails.metadata.title,
@@ -35,6 +49,9 @@ export const metadata: Metadata = {
     description: siteDetails.metadata.description,
     images: ['/images/twitter-image.jpg'],
   },
+  icons: {
+    icon: siteDetails.siteLogo,
+  },
 };
 
 export default function RootLayout({
@@ -43,7 +60,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+      </head>
       <body
         className={`${manrope.className} ${sourceSans.className} antialiased`}
       >
