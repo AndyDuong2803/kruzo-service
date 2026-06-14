@@ -1,60 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useMemo, useState } from "react";
 import clsx from "clsx";
 import { FiCheckCircle, FiCopy, FiSend } from "react-icons/fi";
 
 import Container from "@/components/Container";
+import {
+  buildDisplayApiUrl,
+  hasConfiguredApiBaseUrl,
+  OCR_CUSTOM_PATH,
+  OCR_STANDARD_PATH,
+} from "@/lib/api/config";
+import { ApiError } from "@/lib/api/errors";
+import { extractCustomOcr, extractOcr } from "@/lib/api/ocr";
+import { sampleOcrResponse } from "@/lib/ocr/normalizeOcrResult";
 
 type SendState = "idle" | "loading" | "success" | "error";
 type PlaygroundTab = "request" | "curl" | "javascript" | "python" | "response";
-
-const fallbackApiBaseUrl = "https://api.document-ai.kruzo.tech";
-const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
-const apiBaseUrl = configuredApiBaseUrl || fallbackApiBaseUrl;
-const endpoint = `${apiBaseUrl}/documents/extract`;
-const apiKeyStorageKey = "kruzo-playground-api-key";
-const rememberStorageKey = "kruzo-playground-remember-key";
-
-const documentTypes = ["auto", "invoice", "repair_order", "customer_form", "scanned_form"];
-const outputFormats = ["json", "key_value", "table"];
-const languages = ["auto", "en", "vi"];
-
-const buildSampleResponse = (documentType: string, language: string) => ({
-  document_type: documentType === "auto" ? "repair_order" : documentType,
-  language: language === "auto" ? "en" : language,
-  fields: {
-    customer_name: {
-      value: "Maria Nguyen",
-      confidence: 0.96,
-      review_required: false,
-    },
-    total_amount: {
-      value: "428.60",
-      confidence: 0.91,
-      review_required: false,
-    },
-    service_notes: {
-      value: "Brake inspection and oil change",
-      confidence: 0.72,
-      review_required: true,
-    },
-  },
-  tables: [
-    {
-      name: "line_items",
-      rows: [
-        { item: "Oil change", qty: 1, amount: "89.00" },
-        { item: "Brake inspection", qty: 1, amount: "120.00" },
-      ],
-    },
-  ],
-  review: {
-    status: "needs_review",
-    reason: "Some service notes have lower confidence.",
-  },
-});
+type ExtractMode = "standard" | "custom";
 
 const tabs: { id: PlaygroundTab; label: string }[] = [
   { id: "request", label: "Request" },
@@ -64,132 +28,123 @@ const tabs: { id: PlaygroundTab; label: string }[] = [
   { id: "response", label: "Response" },
 ];
 
+const modeOptions: { id: ExtractMode; label: string; description: string }[] = [
+  {
+    id: "standard",
+    label: "Standard extract",
+    description: "Send only the document file to the default OCR extractor.",
+  },
+  {
+    id: "custom",
+    label: "Custom template extract",
+    description: "Send the document file plus a JSON schema_sample.",
+  },
+];
+
+const defaultSchemaSample = `{
+  "type": "object",
+  "properties": {
+    "customer_name": { "type": "string" },
+    "invoice_total": { "type": "string" },
+    "service_date": { "type": "string" }
+  },
+  "required": ["customer_name"]
+}`;
+
 const FieldLabel: React.FC<React.PropsWithChildren> = ({ children }) => (
   <label className="text-sm font-semibold text-foreground">{children}</label>
 );
 
 const ApiPlayground: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
-  const [apiKey, setApiKey] = useState("");
-  const [rememberKey, setRememberKey] = useState(false);
-  const [documentType, setDocumentType] = useState("auto");
-  const [outputFormat, setOutputFormat] = useState("json");
-  const [language, setLanguage] = useState("auto");
-  const [includeConfidence, setIncludeConfidence] = useState(true);
-  const [includeRawText, setIncludeRawText] = useState(false);
-  const [humanReview, setHumanReview] = useState(true);
+  const [mode, setMode] = useState<ExtractMode>("standard");
+  const [schemaSample, setSchemaSample] = useState(defaultSchemaSample);
   const [sendState, setSendState] = useState<SendState>("idle");
   const [message, setMessage] = useState("Sample response remains visible until a real request succeeds.");
   const [responsePreview, setResponsePreview] = useState<unknown | null>(null);
+  const [debugDetails, setDebugDetails] = useState("");
   const [copiedLabel, setCopiedLabel] = useState("");
   const [activeTab, setActiveTab] = useState<PlaygroundTab>("request");
 
-  useEffect(() => {
-    try {
-      const shouldRemember = localStorage.getItem(rememberStorageKey) === "true";
-      setRememberKey(shouldRemember);
-
-      if (shouldRemember) {
-        setApiKey(localStorage.getItem(apiKeyStorageKey) ?? "");
-      }
-    } catch {
-      setRememberKey(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      if (rememberKey) {
-        localStorage.setItem(rememberStorageKey, "true");
-        localStorage.setItem(apiKeyStorageKey, apiKey);
-      } else {
-        localStorage.removeItem(rememberStorageKey);
-        localStorage.removeItem(apiKeyStorageKey);
-      }
-    } catch {
-      // Storage can be unavailable in private contexts.
-    }
-  }, [apiKey, rememberKey]);
-
-  const authValue = apiKey || "YOUR_API_KEY";
-  const sampleResponse = useMemo(() => buildSampleResponse(documentType, language), [documentType, language]);
+  const endpointPath = mode === "custom" ? OCR_CUSTOM_PATH : OCR_STANDARD_PATH;
+  const endpoint = buildDisplayApiUrl(endpointPath);
+  const filePart = file?.name || "repair-order.pdf";
+  const schemaSampleForExamples = schemaSample.trim() || defaultSchemaSample;
+  const compactSchemaSample = schemaSampleForExamples.replace(/\s+/g, " ");
+  const sampleResponse = useMemo(() => ({
+    ...sampleOcrResponse,
+    message: mode === "custom"
+      ? "Custom template data extracted successfully."
+      : "Data extracted successfully.",
+  }), [mode]);
   const visibleResponse = responsePreview ?? sampleResponse;
   const responseJson = JSON.stringify(visibleResponse, null, 2);
 
-  const selectedParams = useMemo(() => ({
-    document_type: documentType,
-    output_format: outputFormat,
-    language,
-    include_confidence: includeConfidence,
-    include_raw_text: includeRawText,
-    human_review: humanReview,
-  }), [documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
-
   const requestSummary = useMemo(() => {
-    const params = Object.entries(selectedParams)
-      .map(([key, value]) => `  ${key}: ${value}`)
-      .join("\n");
+    const customLine = mode === "custom"
+      ? "\n  schema_sample: JSON schema string"
+      : "";
 
     return `Method: POST
 URL: ${endpoint}
 Content-Type: multipart/form-data
-File: ${file?.name || "repair-order.pdf"}
+Authentication: Not required for current OCR endpoints
 
-Parameters:
-${params}`;
-  }, [file?.name, selectedParams]);
+Fields:
+  file: ${filePart}${customLine}`;
+  }, [endpoint, filePart, mode]);
 
   const curlCommand = useMemo(() => {
-    const filePart = file?.name ? file.name : "repair-order.pdf";
+    const customPart = mode === "custom"
+      ? ` \\\n  -F 'schema_sample=${compactSchemaSample}'`
+      : "";
 
     return `curl -X POST "${endpoint}" \\
-  -H "Authorization: Bearer ${authValue}" \\
-  -F "file=@${filePart}" \\
-  -F "document_type=${documentType}" \\
-  -F "output_format=${outputFormat}" \\
-  -F "language=${language}" \\
-  -F "include_confidence=${includeConfidence}" \\
-  -F "include_raw_text=${includeRawText}" \\
-  -F "human_review=${humanReview}"`;
-  }, [authValue, documentType, file?.name, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+  -F "file=@${filePart}"${customPart}`;
+  }, [compactSchemaSample, endpoint, filePart, mode]);
 
-  const fetchExample = useMemo(() => `const formData = new FormData();
-formData.append("file", fileInput.files[0]);
-formData.append("document_type", "${documentType}");
-formData.append("output_format", "${outputFormat}");
-formData.append("language", "${language}");
-formData.append("include_confidence", "${includeConfidence}");
-formData.append("include_raw_text", "${includeRawText}");
-formData.append("human_review", "${humanReview}");
+  const fetchExample = useMemo(() => {
+    const customPart = mode === "custom"
+      ? `\nformData.append("schema_sample", ${JSON.stringify(schemaSampleForExamples)});`
+      : "";
+
+    return `const formData = new FormData();
+formData.append("file", fileInput.files[0]);${customPart}
 
 const response = await fetch("${endpoint}", {
   method: "POST",
-  headers: {
-    Authorization: "Bearer ${authValue}",
-  },
   body: formData,
 });
 
-const result = await response.json();`, [authValue, documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+const result = await response.json();`;
+  }, [endpoint, mode, schemaSampleForExamples]);
 
-  const pythonExample = useMemo(() => `import requests
+  const pythonExample = useMemo(() => {
+    if (mode === "custom") {
+      return `import requests
+
+schema_sample = """${schemaSampleForExamples}"""
 
 with open("repair-order.pdf", "rb") as file:
     response = requests.post(
         "${endpoint}",
-        headers={"Authorization": "Bearer ${authValue}"},
         files={"file": file},
-        data={
-            "document_type": "${documentType}",
-            "output_format": "${outputFormat}",
-            "language": "${language}",
-            "include_confidence": "${includeConfidence}",
-            "include_raw_text": "${includeRawText}",
-            "human_review": "${humanReview}",
-        },
+        data={"schema_sample": schema_sample},
     )
 
-result = response.json()`, [authValue, documentType, humanReview, includeConfidence, includeRawText, language, outputFormat]);
+result = response.json()`;
+    }
+
+    return `import requests
+
+with open("repair-order.pdf", "rb") as file:
+    response = requests.post(
+        "${endpoint}",
+        files={"file": file},
+    )
+
+result = response.json()`;
+  }, [endpoint, mode, schemaSampleForExamples]);
 
   const activeContent = {
     request: requestSummary,
@@ -216,59 +171,50 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
   };
 
   const sendRequest = async () => {
-    setResponsePreview(null);
-    setActiveTab("response");
-
-    if (!apiKey.trim()) {
-      setSendState("error");
-      setMessage("Enter an API key before sending. Sample response remains visible.");
+    if (sendState === "loading") {
       return;
     }
+
+    setResponsePreview(null);
+    setDebugDetails("");
+    setActiveTab("response");
 
     if (!file) {
       setSendState("error");
-      setMessage("Choose a PDF, JPG, or PNG before sending. Sample response remains visible.");
+      setMessage("Choose a PDF, JPG, PNG, or WEBP before sending. Sample response remains visible.");
       return;
     }
 
-    if (!configuredApiBaseUrl) {
+    if (mode === "custom" && !schemaSample.trim()) {
+      setSendState("error");
+      setMessage("Custom template mode requires schema_sample. Sample response remains visible.");
+      return;
+    }
+
+    if (!hasConfiguredApiBaseUrl) {
       setSendState("error");
       setMessage("NEXT_PUBLIC_API_BASE_URL is not configured locally. Showing the sample response.");
       return;
     }
 
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("document_type", documentType);
-    formData.append("output_format", outputFormat);
-    formData.append("language", language);
-    formData.append("include_confidence", String(includeConfidence));
-    formData.append("include_raw_text", String(includeRawText));
-    formData.append("human_review", String(humanReview));
-
     setSendState("loading");
     setMessage("Sending test request...");
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: formData,
-      });
+      const result = mode === "custom"
+        ? await extractCustomOcr(file, schemaSample)
+        : await extractOcr(file);
 
-      if (!response.ok) {
-        throw new Error(`Request failed with status ${response.status}`);
-      }
-
-      const result = await response.json();
       setResponsePreview(result);
       setSendState("success");
       setMessage("Real API response loaded.");
     } catch (error) {
       setSendState("error");
-      setMessage(`${error instanceof Error ? error.message : "Request failed"}. Showing the sample response instead.`);
+      setMessage(error instanceof ApiError
+        ? `${error.friendlyMessage} Showing the sample response instead.`
+        : "Something went wrong while processing the document. Showing the sample response instead."
+      );
+      setDebugDetails(error instanceof ApiError && error.details ? JSON.stringify(error.details, null, 2) : "");
     }
   };
 
@@ -281,7 +227,7 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
             <p className="text-sm font-semibold uppercase tracking-wide text-secondary">Developer tool</p>
             <h1 className="mt-2 text-3xl font-bold text-foreground md:text-5xl">API Playground</h1>
             <p className="mt-3 text-muted">
-              Configure extraction options and test the document extraction API.
+              Test the current FastAPI OCR endpoints with a real multipart request.
             </p>
           </div>
 
@@ -289,30 +235,30 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
             <div className="brand-card min-w-0 rounded-2xl p-5 md:p-6">
               <div className="mb-5">
                 <p className="text-sm font-semibold text-secondary">Request configuration</p>
-                <p className="text-sm text-muted">POST /documents/extract</p>
+                <p className="text-sm text-muted">POST {endpointPath}</p>
               </div>
 
               <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <FieldLabel>API key</FieldLabel>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(event) => setApiKey(event.target.value)}
-                    placeholder="kruzo_sk_..."
-                    className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm"
-                  />
-                  <div className="flex flex-col gap-2 text-sm text-muted sm:flex-row sm:items-center sm:justify-between">
-                    <label className="inline-flex items-center gap-2 font-semibold">
-                      <input
-                        type="checkbox"
-                        checked={rememberKey}
-                        onChange={(event) => setRememberKey(event.target.checked)}
-                        className="h-4 w-4 accent-[var(--primary)]"
-                      />
-                      Remember locally
-                    </label>
-                    <Link href="/api-keys" className="nav-link font-semibold">Manage API keys</Link>
+                <div className="grid gap-3">
+                  <FieldLabel>Extraction mode</FieldLabel>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {modeOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        aria-pressed={mode === option.id}
+                        className={clsx(
+                          "rounded-2xl border p-4 text-left transition-colors",
+                          mode === option.id
+                            ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary"
+                            : "border-border bg-card-muted text-foreground hover:border-[var(--accent-border)]"
+                        )}
+                        onClick={() => setMode(option.id)}
+                      >
+                        <span className="block text-sm font-bold">{option.label}</span>
+                        <span className="mt-1 block text-sm text-muted">{option.description}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -320,24 +266,46 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
                   <FieldLabel>Upload file</FieldLabel>
                   <input
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
                     onChange={handleFileChange}
                     className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm file:mr-4 file:rounded-full file:border-0 file:bg-[var(--accent-soft)] file:px-4 file:py-2 file:font-semibold file:text-secondary"
                   />
-                  <p className="text-sm text-muted">{file?.name || "PDF, JPG, or PNG"}</p>
+                  <p className="text-sm text-muted">{file?.name || "PDF, JPG, PNG, or WEBP"}</p>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <SelectField label="document_type" value={documentType} options={documentTypes} onChange={setDocumentType} />
-                  <SelectField label="output_format" value={outputFormat} options={outputFormats} onChange={setOutputFormat} />
-                  <SelectField label="language" value={language} options={languages} onChange={setLanguage} />
-                </div>
+                {mode === "custom" && (
+                  <div className="grid gap-2">
+                    <FieldLabel>schema_sample</FieldLabel>
+                    <textarea
+                      value={schemaSample}
+                      onChange={(event) => setSchemaSample(event.target.value)}
+                      rows={9}
+                      className="rounded-xl border border-border bg-card-muted px-4 py-3 font-mono text-sm"
+                    />
+                    <p className="text-sm text-muted">
+                      Current backend expects schema_sample as a JSON schema string.
+                    </p>
+                  </div>
+                )}
 
-                <div className="grid gap-3 rounded-2xl border border-border bg-card-muted p-4">
-                  <ToggleField label="include_confidence" checked={includeConfidence} onChange={setIncludeConfidence} />
-                  <ToggleField label="include_raw_text" checked={includeRawText} onChange={setIncludeRawText} />
-                  <ToggleField label="human_review" checked={humanReview} onChange={setHumanReview} />
-                </div>
+                <details className="rounded-2xl border border-border bg-card-muted p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                    Future API key support
+                  </summary>
+                  <div className="mt-3 grid gap-2 text-sm text-muted">
+                    <p>Current OCR endpoints are public and do not require an API key.</p>
+                    <Link href="/api-keys" className="nav-link font-semibold">View placeholder API keys page</Link>
+                  </div>
+                </details>
+
+                <details className="rounded-2xl border border-border bg-card-muted p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                    Future options not sent
+                  </summary>
+                  <p className="mt-3 text-sm text-muted">
+                    document_type, output_format, language, include_confidence, include_raw_text, and human_review are planned options only.
+                  </p>
+                </details>
 
                 <button
                   type="button"
@@ -360,6 +328,17 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
                 >
                   {message}
                 </p>
+
+                {debugDetails && (
+                  <details className="rounded-2xl border border-border bg-card-muted p-4">
+                    <summary className="cursor-pointer text-sm font-semibold text-foreground">
+                      Technical details
+                    </summary>
+                    <pre className="mt-3 max-h-56 overflow-auto rounded-xl border border-border bg-card p-4 text-sm text-foreground">
+                      <code>{debugDetails}</code>
+                    </pre>
+                  </details>
+                )}
               </div>
             </div>
 
@@ -405,39 +384,5 @@ result = response.json()`, [authValue, documentType, humanReview, includeConfide
     </section>
   );
 };
-
-type SelectFieldProps = {
-  label: string;
-  value: string;
-  options: string[];
-  onChange: (nextValue: string) => void;
-};
-
-const SelectField: React.FC<SelectFieldProps> = ({ label, value, options, onChange }) => (
-  <div className="grid gap-2">
-    <FieldLabel>{label}</FieldLabel>
-    <select value={value} onChange={(event) => onChange(event.target.value)} className="rounded-xl border border-border bg-card-muted px-4 py-3 text-sm">
-      {options.map((option) => <option key={option}>{option}</option>)}
-    </select>
-  </div>
-);
-
-type ToggleFieldProps = {
-  label: string;
-  checked: boolean;
-  onChange: (nextValue: boolean) => void;
-};
-
-const ToggleField: React.FC<ToggleFieldProps> = ({ label, checked, onChange }) => (
-  <label className="flex items-center justify-between gap-4 text-sm font-semibold">
-    <span>{label}</span>
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={(event) => onChange(event.target.checked)}
-      className="h-5 w-5 accent-[var(--primary)]"
-    />
-  </label>
-);
 
 export default ApiPlayground;

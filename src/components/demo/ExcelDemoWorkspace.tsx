@@ -15,6 +15,16 @@ import {
 import { HiArrowRight } from "react-icons/hi2";
 
 import Container from "@/components/Container";
+import { hasConfiguredApiBaseUrl } from "@/lib/api/config";
+import { ApiError } from "@/lib/api/errors";
+import { extractOcr } from "@/lib/api/ocr";
+import { buildCsvFromPreviewRows } from "@/lib/ocr/exportCsv";
+import {
+  DetectedTable,
+  normalizeOcrResult,
+  PreviewRow,
+  samplePreviewRows,
+} from "@/lib/ocr/normalizeOcrResult";
 
 type TourTarget = "upload" | "documentType" | "template" | "previewButton" | "table" | "export";
 
@@ -22,13 +32,6 @@ type TourStep = {
   target: TourTarget;
   title: string;
   description: string;
-};
-
-type PreviewRow = {
-  field: string;
-  value: string;
-  confidence: string;
-  review: "Approved" | "Needs review";
 };
 
 const tourStorageKey = "kruzo-try-tour-dismissed";
@@ -42,18 +45,11 @@ const excelTemplates = [
   "Customer intake template",
 ];
 
-const previewRows: PreviewRow[] = [
-  { field: "Customer name", value: "Maria Nguyen", confidence: "96%", review: "Approved" },
-  { field: "Document type", value: "Repair order", confidence: "94%", review: "Approved" },
-  { field: "Total amount", value: "$428.60", confidence: "91%", review: "Approved" },
-  { field: "Service notes", value: "Brake inspection and oil change", confidence: "72%", review: "Needs review" },
-];
-
 const tourSteps: TourStep[] = [
   {
     target: "upload",
     title: "Add a document",
-    description: "Start by adding a PDF, JPG, or PNG.",
+    description: "Start by adding a PDF, JPG, PNG, or WEBP.",
   },
   {
     target: "documentType",
@@ -81,16 +77,6 @@ const tourSteps: TourStep[] = [
     description: "Export a sample or send your real workflow for review.",
   },
 ];
-
-const buildCsv = () => {
-  const headers = ["Field", "Extracted value", "Confidence", "Review"];
-  const rows = previewRows.map((row) => [row.field, row.value, row.confidence, row.review]);
-  const csvRows = [headers, ...rows].map((row) =>
-    row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
-  );
-
-  return csvRows.join("\n");
-};
 
 const getPrefersReducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -123,11 +109,17 @@ const scrollTourTargetIntoView = (target: TourTarget) => {
 };
 
 const ExcelDemoWorkspace: React.FC = () => {
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
   const [documentType, setDocumentType] = useState(documentTypes[0]);
   const [excelTemplate, setExcelTemplate] = useState(excelTemplates[0]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [previewMessage, setPreviewMessage] = useState("Sample table is ready for review.");
+  const [previewMessage, setPreviewMessage] = useState("Sample preview is shown until a real file/API is connected.");
+  const [previewRows, setPreviewRows] = useState<PreviewRow[]>(samplePreviewRows);
+  const [detectedTables, setDetectedTables] = useState<DetectedTable[]>([]);
+  const [rawJson, setRawJson] = useState("");
+  const [showRawJson, setShowRawJson] = useState(false);
+  const [usedFallbackShape, setUsedFallbackShape] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
 
@@ -194,29 +186,67 @@ const ExcelDemoWorkspace: React.FC = () => {
 
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    setSelectedFile(file ?? null);
     setFileName(file?.name ?? "");
-    setPreviewMessage(file ? "File selected. Preview it when you are ready." : "Sample table is ready for review.");
+    setPreviewMessage(file ? `${file.name} selected. Preview it when you are ready.` : "Sample preview is shown until a real file/API is connected.");
   };
 
-  const previewExcel = () => {
+  const previewExcel = async () => {
+    if (isProcessing) {
+      return;
+    }
+
+    if (!hasConfiguredApiBaseUrl || !selectedFile) {
+      setPreviewRows(samplePreviewRows);
+      setDetectedTables([]);
+      setRawJson("");
+      setShowRawJson(false);
+      setUsedFallbackShape(false);
+      setPreviewMessage("Sample preview is shown until a real file/API is connected.");
+      return;
+    }
+
     setIsProcessing(true);
     setPreviewMessage("Reading the document...");
 
-    window.setTimeout(() => {
+    try {
+      const result = await extractOcr(selectedFile);
+      const preview = normalizeOcrResult(result);
+
+      setPreviewRows(preview.rows);
+      setDetectedTables(preview.tables);
+      setRawJson(preview.rawJson);
+      setShowRawJson(preview.usedFallback);
+      setUsedFallbackShape(preview.usedFallback);
+      setPreviewMessage(preview.usedFallback
+        ? "Response received, but the shape was not recognized. Showing fallback table and raw JSON."
+        : "Preview ready. Low-confidence fields are flagged."
+      );
+    } catch (error) {
+      const friendlyMessage = error instanceof ApiError
+        ? error.friendlyMessage
+        : "Something went wrong while processing the document.";
+
+      setPreviewRows(samplePreviewRows);
+      setDetectedTables([]);
+      setRawJson(error instanceof ApiError && error.details ? JSON.stringify(error.details, null, 2) : "");
+      setShowRawJson(false);
+      setUsedFallbackShape(error instanceof ApiError && Boolean(error.details));
+      setPreviewMessage(`${friendlyMessage} Showing sample preview instead.`);
+    } finally {
       setIsProcessing(false);
-      setPreviewMessage("Preview ready. Low-confidence fields are flagged.");
-    }, 950);
+    }
   };
 
   const downloadSample = () => {
-    const blob = new Blob([buildCsv()], { type: "text/csv;charset=utf-8" });
+    const blob = new Blob([buildCsvFromPreviewRows(previewRows)], { type: "text/csv;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "kruzo-sample-excel-ready-table.csv";
+    link.download = "kruzo-document-ai-sample.csv";
     link.click();
     window.URL.revokeObjectURL(url);
-    setPreviewMessage("Sample CSV downloaded. Excel can open this file.");
+    setPreviewMessage("CSV downloaded. Excel can open this file.");
   };
 
   return (
@@ -262,12 +292,12 @@ const ExcelDemoWorkspace: React.FC = () => {
                     <FiUploadCloud size={30} aria-hidden="true" />
                   </div>
                   <h2 className="mt-5 text-2xl font-semibold">Upload document</h2>
-                  <p className="mt-2 text-muted">PDF, JPG, or PNG</p>
+                  <p className="mt-2 text-muted">PDF, JPG, PNG, or WEBP</p>
 
                   <input
                     id="demo-file"
                     type="file"
-                    accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                    accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
                     className="sr-only"
                     onChange={handleFileChange}
                   />
@@ -377,6 +407,13 @@ const ExcelDemoWorkspace: React.FC = () => {
                   ))}
                 </div>
 
+                <div className="mb-5 rounded-xl border border-border bg-card-muted p-4">
+                  <p className="text-sm font-semibold text-foreground">Template matching</p>
+                  <p className="mt-2 text-sm text-muted">
+                    For real workflows, Kruzo can match your existing Excel template.
+                  </p>
+                </div>
+
                 <div
                   data-tour-target="table"
                   className={clsx("overflow-hidden rounded-xl border border-border", activeTargetClass("table"))}
@@ -421,6 +458,59 @@ const ExcelDemoWorkspace: React.FC = () => {
                   </div>
                 </div>
 
+                {detectedTables.length > 0 && (
+                  <div className="mt-6 rounded-xl border border-border bg-card-muted p-4">
+                    <p className="text-sm font-semibold text-foreground">Detected tables</p>
+                    <div className="mt-4 grid gap-4">
+                      {detectedTables.map((table) => (
+                        <div key={table.name} className="overflow-hidden rounded-xl border border-border bg-card">
+                          <div className="border-b border-border px-4 py-3 text-sm font-semibold text-secondary">
+                            {table.name}
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full min-w-[520px] text-left text-sm">
+                              <thead className="bg-card-muted text-muted">
+                                <tr>
+                                  {table.columns.map((column) => (
+                                    <th key={column} className="border-b border-border px-4 py-3 font-semibold">
+                                      {column}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {table.rows.map((row, rowIndex) => (
+                                  <tr key={`${table.name}-${rowIndex}`} className="border-b border-border last:border-b-0">
+                                    {row.map((cell, cellIndex) => (
+                                      <td key={`${table.name}-${rowIndex}-${cellIndex}`} className="px-4 py-3 text-muted">
+                                        {cell}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {usedFallbackShape && rawJson && (
+                  <details className="mt-6 rounded-xl border border-border bg-card-muted p-4" open={showRawJson}>
+                    <summary
+                      className="cursor-pointer text-sm font-semibold text-foreground"
+                      onClick={() => setShowRawJson((current) => !current)}
+                    >
+                      Raw JSON response
+                    </summary>
+                    <pre className="mt-4 max-h-72 overflow-auto rounded-xl border border-border bg-card p-4 text-sm leading-relaxed text-foreground">
+                      <code>{rawJson}</code>
+                    </pre>
+                  </details>
+                )}
+
                 <div
                   data-tour-target="export"
                   className={clsx("mt-6 grid gap-3 sm:grid-cols-2", activeTargetClass("export"))}
@@ -431,7 +521,7 @@ const ExcelDemoWorkspace: React.FC = () => {
                     onClick={downloadSample}
                   >
                     <FiDownload aria-hidden="true" />
-                    Download sample Excel
+                    Download CSV
                   </button>
                   <Link href="/#audit" className="brand-button brand-button-secondary button-pop px-5 py-2.5">
                     Get free workflow audit

@@ -7,6 +7,12 @@ import { FiCheckCircle, FiCopy } from "react-icons/fi";
 import { HiArrowRight } from "react-icons/hi2";
 
 import Container from "@/components/Container";
+import {
+  LOCAL_API_BASE_URL,
+  OCR_CUSTOM_PATH,
+  OCR_STANDARD_PATH,
+  PRODUCTION_API_BASE_URL,
+} from "@/lib/api/config";
 
 type DocsTopicId =
   | "overview"
@@ -31,8 +37,9 @@ type DocsTopic = {
   group: string;
 };
 
-const baseUrl = "https://api.document-ai.kruzo.tech";
-const endpoint = `${baseUrl}/documents/extract`;
+const baseUrl = PRODUCTION_API_BASE_URL;
+const standardEndpoint = `${baseUrl}${OCR_STANDARD_PATH}`;
+const customEndpoint = `${baseUrl}${OCR_CUSTOM_PATH}`;
 
 const docsTopics: DocsTopic[] = [
   { group: "Get started", id: "overview", label: "Overview" },
@@ -58,90 +65,76 @@ const groupedTopics = docsTopics.reduce<Record<string, DocsTopic[]>>((groups, to
 }, {});
 
 const requestParameters = [
-  ["file", "required", "PDF, JPG, or PNG document file."],
-  ["document_type", "optional", "auto | invoice | repair_order | customer_form | scanned_form"],
-  ["output_format", "optional", "json | key_value | table"],
-  ["language", "optional", "auto | en | vi"],
-  ["include_confidence", "optional", "true | false"],
-  ["include_raw_text", "optional", "true | false"],
-  ["human_review", "optional", "true | false"],
+  ["file", "required", "Both OCR endpoints", "PDF, JPG, PNG, or WEBP document file."],
+  ["schema_sample", "required", OCR_CUSTOM_PATH, "JSON schema string for custom template extraction."],
 ];
 
 const errorCodes = [
-  ["400", "invalid_request", "Missing file or invalid parameter."],
-  ["401", "unauthorized", "Missing or invalid API key."],
-  ["413", "file_too_large", "Uploaded file exceeds limit."],
-  ["415", "unsupported_file_type", "File type is not supported."],
-  ["422", "extraction_failed", "Document could not be processed reliably."],
-  ["429", "rate_limited", "Too many requests."],
-  ["500", "internal_error", "Unexpected server error."],
+  ["422", "ERR_OCR_BIZ_2000", "Invalid input data, including invalid schema_sample JSON."],
+  ["400", "WAR_OCR_BIZ_2001", "File size exceeds limit."],
+  ["415", "WAR_OCR_BIZ_2002", "Unsupported file format."],
+  ["400", "WAR_OCR_BIZ_2003", "File is empty."],
+  ["413", "WAR_OCR_BIZ_2004", "Schema sample exceeds token limit."],
+  ["502", "ERR_OCR_EXT_3000", "AI provider timeout or upstream failure."],
+  ["502", "ERR_OCR_EXT_3001", "AI provider returned invalid JSON."],
 ];
 
 const sampleResponse = `{
-  "document_type": "repair_order",
-  "language": "en",
-  "fields": {
-    "customer_name": {
-      "value": "Maria Nguyen",
-      "confidence": 0.96,
-      "review_required": false
+  "success": true,
+  "error_code": null,
+  "message": "Data extracted successfully.",
+  "data": {
+    "document_type": "repair_order",
+    "language": "en",
+    "fields": {
+      "customer_name": {
+        "value": "Maria Nguyen",
+        "confidence": 0.96,
+        "review_required": false
+      },
+      "total_amount": {
+        "value": "428.60",
+        "confidence": 0.91,
+        "review_required": false
+      },
+      "service_notes": {
+        "value": "Brake inspection and oil change",
+        "confidence": 0.72,
+        "review_required": true
+      }
     },
-    "total_amount": {
-      "value": "428.60",
-      "confidence": 0.91,
-      "review_required": false
-    },
-    "service_notes": {
-      "value": "Brake inspection and oil change",
-      "confidence": 0.72,
-      "review_required": true
+    "tables": [
+      {
+        "name": "line_items",
+        "rows": [
+          {
+            "item": "Oil change",
+            "qty": 1,
+            "amount": "89.00"
+          },
+          {
+            "item": "Brake inspection",
+            "qty": 1,
+            "amount": "120.00"
+          }
+        ]
+      }
+    ],
+    "review": {
+      "status": "needs_review",
+      "reason": "Some service notes have lower confidence."
     }
-  },
-  "tables": [
-    {
-      "name": "line_items",
-      "rows": [
-        {
-          "item": "Oil change",
-          "qty": 1,
-          "amount": "89.00"
-        },
-        {
-          "item": "Brake inspection",
-          "qty": 1,
-          "amount": "120.00"
-        }
-      ]
-    }
-  ],
-  "review": {
-    "status": "needs_review",
-    "reason": "Some service notes have lower confidence."
-  },
-  "metadata": {
-    "file_name": "repair-order.pdf",
-    "request_id": "req_123456",
-    "processed_at": "2026-06-14T12:00:00Z"
   }
 }`;
 
-const curlExample = `curl -X POST "${endpoint}" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -F "file=@repair-order.pdf" \\
-  -F "document_type=repair_order" \\
-  -F "output_format=json" \\
-  -F "include_confidence=true"`;
+const curlExample = `curl -X POST "${standardEndpoint}" \\
+  -F "file=@repair-order.pdf"`;
 
 const javascriptExample = `const formData = new FormData();
 formData.append("file", fileInput.files[0]);
-formData.append("document_type", "repair_order");
-formData.append("output_format", "json");
 
-const response = await fetch("${endpoint}", {
+const response = await fetch("${standardEndpoint}", {
   method: "POST",
-  headers: {
-    Authorization: "Bearer YOUR_API_KEY",
-  },
   body: formData,
 });
 
@@ -151,14 +144,8 @@ const pythonExample = `import requests
 
 with open("repair-order.pdf", "rb") as file:
     response = requests.post(
-        "${endpoint}",
-        headers={"Authorization": "Bearer YOUR_API_KEY"},
+        "${standardEndpoint}",
         files={"file": file},
-        data={
-            "document_type": "repair_order",
-            "output_format": "json",
-            "include_confidence": "true",
-        },
     )
 
 result = response.json()`;
@@ -302,11 +289,15 @@ const DocsTopicContent: React.FC<DocsTopicContentProps> = ({ topic, copiedLabel,
         <Topic title="Overview">
           <p>
             Kruzo Document AI extracts fields, tables, confidence signals, and review hints from service-business documents.
-            API access is planned for controlled beta workflows.
+            Current OCR endpoints are available through the FastAPI backend response envelope.
           </p>
           <DefinitionGrid items={[
-            ["Base URL", baseUrl],
-            ["Endpoint", "POST /documents/extract"],
+            ["Production base URL", baseUrl],
+            ["Local base URL", LOCAL_API_BASE_URL],
+            ["Standard URL", standardEndpoint],
+            ["Custom URL", customEndpoint],
+            ["Standard endpoint", `POST ${OCR_STANDARD_PATH}`],
+            ["Custom endpoint", `POST ${OCR_CUSTOM_PATH}`],
             ["Content type", "multipart/form-data"],
           ]} />
         </Topic>
@@ -314,17 +305,16 @@ const DocsTopicContent: React.FC<DocsTopicContentProps> = ({ topic, copiedLabel,
     case "quickstart":
       return (
         <Topic title="Quickstart">
-          <p>Send a multipart form request with a document file and optional extraction settings.</p>
+          <p>Send a multipart form request with a document file. The standard endpoint accepts only the file field.</p>
           <CodeBlock label="Quickstart cURL" code={curlExample} copied={copiedLabel === "Quickstart cURL"} onCopy={onCopy} />
         </Topic>
       );
     case "authentication":
       return (
         <Topic title="Authentication">
-          <p>Requests use bearer token authentication. API key access is controlled beta for now.</p>
-          <CodeBlock label="Authorization header" code="Authorization: Bearer YOUR_API_KEY" copied={copiedLabel === "Authorization header"} onCopy={onCopy} />
+          <p>The current OCR endpoints do not require an API key. API keys are a placeholder for future/beta access control.</p>
           <Link href="/api-keys" className="nav-link mt-5 inline-flex text-sm font-semibold">
-            Manage API keys
+            View API keys placeholder
           </Link>
         </Topic>
       );
@@ -332,30 +322,33 @@ const DocsTopicContent: React.FC<DocsTopicContentProps> = ({ topic, copiedLabel,
       return (
         <Topic title="Extract document">
           <DefinitionGrid items={[
-            ["Method", "POST"],
-            ["Path", "/documents/extract"],
+            ["Standard method", "POST"],
+            ["Standard path", OCR_STANDARD_PATH],
+            ["Custom method", "POST"],
+            ["Custom path", OCR_CUSTOM_PATH],
             ["Content type", "multipart/form-data"],
-            ["Required", "file"],
+            ["Standard required field", "file"],
+            ["Custom required fields", "file, schema_sample"],
           ]} />
         </Topic>
       );
     case "request-parameters":
       return (
         <Topic title="Request parameters">
-          <DataTable headers={["Parameter", "Required", "Description"]} rows={requestParameters} />
+          <DataTable headers={["Parameter", "Required", "Applies to", "Description"]} rows={requestParameters} />
         </Topic>
       );
     case "response-schema":
       return (
         <Topic title="Response schema">
-          <p>Responses include document type, language, fields, tables, review signals, and metadata.</p>
+          <p>Every backend response is wrapped in the shared ApiResponse envelope.</p>
           <DefinitionGrid items={[
-            ["document_type", "Detected or requested document category."],
-            ["language", "Detected or requested language."],
-            ["fields", "Extracted key-value fields with confidence."],
-            ["tables", "Structured tabular data when available."],
-            ["review", "Human review status and reasons."],
-            ["metadata", "File and request metadata."],
+            ["success", "Boolean request status."],
+            ["error_code", "Backend error code, or null on success."],
+            ["message", "Human-readable backend message."],
+            ["data", "Extracted JSON object returned by the OCR model."],
+            ["data.fields", "Optional extracted key-value fields with confidence."],
+            ["data.tables", "Optional structured tabular data when available."],
           ]} />
         </Topic>
       );
@@ -389,8 +382,8 @@ const DocsTopicContent: React.FC<DocsTopicContentProps> = ({ topic, copiedLabel,
       return (
         <Topic title="File limits">
           <DefinitionGrid items={[
-            ["Max file size", "To be confirmed during beta"],
-            ["Supported files", "PDF, JPG, PNG"],
+            ["Max file size", "10 MB backend default"],
+            ["Supported files", "PDF, JPG, PNG, WEBP"],
           ]} />
         </Topic>
       );
@@ -401,7 +394,10 @@ const DocsTopicContent: React.FC<DocsTopicContentProps> = ({ topic, copiedLabel,
             <li>Do not upload highly sensitive documents during beta.</li>
             <li>Results may require human review.</li>
             <li>Very low-quality scans may reduce extraction quality.</li>
-            <li>Custom Excel templates are handled through workflow setup.</li>
+            <li>API keys page is a placeholder; current OCR endpoints do not require API keys.</li>
+            <li>Custom output uses <code>schema_sample</code> on <code>{OCR_CUSTOM_PATH}</code>.</li>
+            <li><code>document_type</code>, <code>output_format</code>, and <code>language</code> are future options unless backend support is added.</li>
+            <li>The CSV export in the Excel demo is a frontend sample, not a final template export.</li>
           </ul>
         </Topic>
       );
