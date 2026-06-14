@@ -1,9 +1,7 @@
 import ApiPlayground from "@/components/demo/ApiPlayground";
+import { createMetadata, seoRoutes } from "@/lib/seo";
 
-export const metadata = {
-  title: "API Playground",
-  description: "Configure extraction options, send a test request, and inspect the JSON response.",
-};
+export const metadata = createMetadata(seoRoutes.apiPlayground);
 
 const ApiPlaygroundPage: React.FC = () => {
   return <ApiPlayground />;

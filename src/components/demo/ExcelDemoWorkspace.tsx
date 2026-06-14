@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import {
   FiAlertCircle,
@@ -10,6 +10,7 @@ import {
   FiFileText,
   FiGrid,
   FiHelpCircle,
+  FiTrash2,
   FiUploadCloud,
 } from "react-icons/fi";
 import { HiArrowRight } from "react-icons/hi2";
@@ -22,11 +23,46 @@ import { buildCsvFromPreviewRows } from "@/lib/ocr/exportCsv";
 import {
   DetectedTable,
   normalizeOcrResult,
+  OcrPreview,
   PreviewRow,
   samplePreviewRows,
 } from "@/lib/ocr/normalizeOcrResult";
 
-type TourTarget = "upload" | "documentType" | "template" | "previewButton" | "table" | "export";
+type TourTarget = "upload" | "fileList" | "documentType" | "template" | "previewButton" | "table" | "export";
+type FileStatus = "ready" | "processing" | "done" | "failed";
+
+type SelectedUpload = {
+  id: string;
+  file: File;
+  label: string;
+  status: FileStatus;
+  message?: string;
+  debugDetails?: string;
+  preview?: OcrPreview;
+};
+
+type CollectedFile = {
+  file: File;
+  relativePath?: string;
+};
+
+type BrowserFileEntry = {
+  isFile: boolean;
+  isDirectory: boolean;
+  name: string;
+  fullPath?: string;
+  file?: (success: (file: File) => void, error?: (error: DOMException) => void) => void;
+  createReader?: () => {
+    readEntries: (
+      success: (entries: BrowserFileEntry[]) => void,
+      error?: (error: DOMException) => void
+    ) => void;
+  };
+};
+
+type DataTransferItemWithEntry = DataTransferItem & {
+  webkitGetAsEntry?: () => BrowserFileEntry | null;
+};
 
 type TourStep = {
   target: TourTarget;
@@ -35,6 +71,13 @@ type TourStep = {
 };
 
 const tourStorageKey = "kruzo-try-tour-dismissed";
+const supportedMimeTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const supportedExtensions = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+const maxListHeightClass = "max-h-[260px]";
+const folderInputAttributes = {
+  webkitdirectory: "",
+  directory: "",
+} as React.InputHTMLAttributes<HTMLInputElement> & { webkitdirectory: string; directory: string };
 
 const documentTypes = ["Auto detect", "Invoice", "Repair order", "Customer form", "Scanned form"];
 
@@ -48,8 +91,13 @@ const excelTemplates = [
 const tourSteps: TourStep[] = [
   {
     target: "upload",
-    title: "Add a document",
-    description: "Start by adding a PDF, JPG, PNG, or WEBP.",
+    title: "Add documents",
+    description: "Click, drag files, or drag a folder when your browser supports it.",
+  },
+  {
+    target: "fileList",
+    title: "Review selected files",
+    description: "Check the file list and remove anything you do not want to process.",
   },
   {
     target: "documentType",
@@ -63,18 +111,18 @@ const tourSteps: TourStep[] = [
   },
   {
     target: "previewButton",
-    title: "Preview the table",
-    description: "Preview the extracted table before exporting.",
+    title: "Extract selected files",
+    description: "Extraction starts only after you submit the reviewed file list.",
   },
   {
     target: "table",
-    title: "Review extracted fields",
-    description: "Review fields and low-confidence values.",
+    title: "Review extracted result",
+    description: "Review fields, tables, and low-confidence values.",
   },
   {
     target: "export",
     title: "Export or request help",
-    description: "Export a sample or send your real workflow for review.",
+    description: "Download CSV for the active result or send your workflow for review.",
   },
 ];
 
@@ -108,22 +156,145 @@ const scrollTourTargetIntoView = (target: TourTarget) => {
   return true;
 };
 
+const isSupportedFile = (file: File) => {
+  const lowerName = file.name.toLowerCase();
+  return supportedMimeTypes.has(file.type) || supportedExtensions.some((extension) => lowerName.endsWith(extension));
+};
+
+const formatFileSize = (bytes: number) => {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+};
+
+const getFileRelativePath = (file: File) =>
+  (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name;
+
+const fileKey = (item: CollectedFile) =>
+  `${item.relativePath || getFileRelativePath(item.file)}-${item.file.size}-${item.file.lastModified}`;
+
+const createUploadId = () =>
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const readFileEntry = (entry: BrowserFileEntry, parentPath = ""): Promise<CollectedFile[]> =>
+  new Promise((resolve) => {
+    if (!entry.file) {
+      resolve([]);
+      return;
+    }
+
+    entry.file(
+      (file) => resolve([{ file, relativePath: `${parentPath}${file.name}` }]),
+      () => resolve([])
+    );
+  });
+
+const readDirectoryEntry = async (entry: BrowserFileEntry, parentPath = ""): Promise<CollectedFile[]> => {
+  const reader = entry.createReader?.();
+
+  if (!reader) {
+    return [];
+  }
+
+  const entries: BrowserFileEntry[] = [];
+
+  await new Promise<void>((resolve) => {
+    const readBatch = () => {
+      reader.readEntries(
+        (batch) => {
+          if (batch.length === 0) {
+            resolve();
+            return;
+          }
+
+          entries.push(...batch);
+          readBatch();
+        },
+        () => resolve()
+      );
+    };
+
+    readBatch();
+  });
+
+  const nestedFiles = await Promise.all(
+    entries.map((child) => readEntryFiles(child, `${parentPath}${entry.name}/`))
+  );
+
+  return nestedFiles.flat();
+};
+
+const readEntryFiles = (entry: BrowserFileEntry, parentPath = ""): Promise<CollectedFile[]> => {
+  if (entry.isFile) {
+    return readFileEntry(entry, parentPath);
+  }
+
+  if (entry.isDirectory) {
+    return readDirectoryEntry(entry, parentPath);
+  }
+
+  return Promise.resolve([]);
+};
+
+const collectDroppedFiles = async (dataTransfer: DataTransfer): Promise<CollectedFile[]> => {
+  const items = Array.from(dataTransfer.items ?? []);
+  const entries = items
+    .map((item) => (item as DataTransferItemWithEntry).webkitGetAsEntry?.() as BrowserFileEntry | null | undefined)
+    .filter(Boolean) as BrowserFileEntry[];
+
+  if (entries.length > 0) {
+    const collected = await Promise.all(entries.map((entry) => readEntryFiles(entry)));
+    return collected.flat();
+  }
+
+  return Array.from(dataTransfer.files ?? []).map((file) => ({
+    file,
+    relativePath: getFileRelativePath(file),
+  }));
+};
+
+const statusLabel: Record<FileStatus, string> = {
+  ready: "Ready",
+  processing: "Processing",
+  done: "Done",
+  failed: "Failed",
+};
+
 const ExcelDemoWorkspace: React.FC = () => {
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [fileName, setFileName] = useState("");
+  const [selectedFiles, setSelectedFiles] = useState<SelectedUpload[]>([]);
   const [documentType, setDocumentType] = useState(documentTypes[0]);
   const [excelTemplate, setExcelTemplate] = useState(excelTemplates[0]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processedCount, setProcessedCount] = useState(0);
+  const [processingTotal, setProcessingTotal] = useState(0);
   const [previewMessage, setPreviewMessage] = useState("Sample preview is shown until a real file/API is connected.");
-  const [previewRows, setPreviewRows] = useState<PreviewRow[]>(samplePreviewRows);
-  const [detectedTables, setDetectedTables] = useState<DetectedTable[]>([]);
-  const [rawJson, setRawJson] = useState("");
+  const [uploadWarning, setUploadWarning] = useState("");
+  const [isDragActive, setIsDragActive] = useState(false);
+  const [activeResultId, setActiveResultId] = useState<string | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
-  const [usedFallbackShape, setUsedFallbackShape] = useState(false);
   const [tourOpen, setTourOpen] = useState(false);
   const [tourIndex, setTourIndex] = useState(0);
 
   const currentTourStep = tourSteps[tourIndex];
+  const completedFiles = selectedFiles.filter((item) => item.status === "done" && item.preview);
+  const activeResultFile = completedFiles.find((item) => item.id === activeResultId) ?? completedFiles[completedFiles.length - 1];
+  const activePreview = activeResultFile?.preview;
+  const previewRows: PreviewRow[] = activePreview?.rows ?? samplePreviewRows;
+  const detectedTables: DetectedTable[] = activePreview?.tables ?? [];
+  const rawJson = activePreview?.rawJson ?? "";
+  const usedFallbackShape = Boolean(activePreview?.usedFallback);
+  const progressLabel = useMemo(() => `${tourIndex + 1} of ${tourSteps.length}`, [tourIndex]);
+  const processingLabel = isProcessing && processingTotal > 0
+    ? `Processing ${processedCount} of ${processingTotal} files`
+    : "";
 
   useEffect(() => {
     try {
@@ -154,8 +325,6 @@ const ExcelDemoWorkspace: React.FC = () => {
   const activeTargetClass = (target: TourTarget) =>
     clsx(tourOpen && currentTourStep.target === target && "guided-target-active");
 
-  const progressLabel = useMemo(() => `${tourIndex + 1} of ${tourSteps.length}`, [tourIndex]);
-
   const dismissTour = () => {
     try {
       localStorage.setItem(tourStorageKey, "true");
@@ -184,57 +353,165 @@ const ExcelDemoWorkspace: React.FC = () => {
     setTourIndex((current) => Math.max(0, current - 1));
   };
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    setSelectedFile(file ?? null);
-    setFileName(file?.name ?? "");
-    setPreviewMessage(file ? `${file.name} selected. Preview it when you are ready.` : "Sample preview is shown until a real file/API is connected.");
+  const addCollectedFiles = (items: CollectedFile[]) => {
+    if (items.length === 0) {
+      setUploadWarning("No files were found. Folder upload may not be supported in this browser.");
+      return;
+    }
+
+    const supportedItems = items.filter((item) => isSupportedFile(item.file));
+    const unsupportedCount = items.length - supportedItems.length;
+    const existingKeys = new Set(selectedFiles.map((item) => fileKey({ file: item.file, relativePath: item.label })));
+    const uploadsToAdd: SelectedUpload[] = [];
+
+    supportedItems.forEach((item) => {
+      const key = fileKey(item);
+
+      if (existingKeys.has(key)) {
+        return;
+      }
+
+      existingKeys.add(key);
+      uploadsToAdd.push({
+        id: createUploadId(),
+        file: item.file,
+        label: item.relativePath || getFileRelativePath(item.file),
+        status: "ready",
+      });
+    });
+
+    setSelectedFiles((current) => [...current, ...uploadsToAdd]);
+
+    const addedCount = uploadsToAdd.length;
+    const messages = [];
+    if (addedCount > 0) {
+      messages.push(`${addedCount} supported file${addedCount === 1 ? "" : "s"} added.`);
+    }
+    if (unsupportedCount > 0) {
+      messages.push(`${unsupportedCount} unsupported file${unsupportedCount === 1 ? "" : "s"} ignored.`);
+    }
+    if (supportedItems.length > addedCount) {
+      messages.push("Duplicate files were skipped.");
+    }
+
+    setUploadWarning(messages.join(" "));
+    setPreviewMessage(addedCount > 0
+      ? "Review selected files, then extract when you are ready."
+      : "No new supported files were added."
+    );
   };
 
-  const previewExcel = async () => {
-    if (isProcessing) {
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []).map((file) => ({
+      file,
+      relativePath: getFileRelativePath(file),
+    }));
+
+    if (files.length > 0) {
+      addCollectedFiles(files);
+    }
+
+    event.target.value = "";
+  };
+
+  const handleDrop = async (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+    const files = await collectDroppedFiles(event.dataTransfer);
+    addCollectedFiles(files);
+  };
+
+  const removeFile = (id: string) => {
+    setSelectedFiles((current) => current.filter((item) => item.id !== id));
+    setActiveResultId((current) => current === id ? null : current);
+  };
+
+  const clearFiles = () => {
+    setSelectedFiles([]);
+    setActiveResultId(null);
+    setUploadWarning("");
+    setPreviewMessage("Sample preview is shown until a real file/API is connected.");
+  };
+
+  const updateFile = (id: string, patch: Partial<SelectedUpload>) => {
+    setSelectedFiles((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
+  };
+
+  const extractSelectedFiles = async () => {
+    if (isProcessing || selectedFiles.length === 0) {
       return;
     }
 
-    if (!hasConfiguredApiBaseUrl || !selectedFile) {
-      setPreviewRows(samplePreviewRows);
-      setDetectedTables([]);
-      setRawJson("");
-      setShowRawJson(false);
-      setUsedFallbackShape(false);
-      setPreviewMessage("Sample preview is shown until a real file/API is connected.");
+    if (!hasConfiguredApiBaseUrl) {
+      setPreviewMessage("NEXT_PUBLIC_API_BASE_URL is not configured locally. Showing sample preview instead.");
       return;
     }
+
+    const filesToProcess = selectedFiles;
+    let completed = 0;
+    let successCount = 0;
+    let failedCount = 0;
 
     setIsProcessing(true);
-    setPreviewMessage("Reading the document...");
+    setProcessedCount(0);
+    setProcessingTotal(filesToProcess.length);
+    setActiveResultId(null);
+    setShowRawJson(false);
+    setPreviewMessage(`Processing 0 of ${filesToProcess.length} files...`);
+    setSelectedFiles((current) => current.map((item) => ({
+      ...item,
+      status: "ready",
+      message: undefined,
+      debugDetails: undefined,
+    })));
 
-    try {
-      const result = await extractOcr(selectedFile);
-      const preview = normalizeOcrResult(result);
+    const runFile = async (item: SelectedUpload) => {
+      updateFile(item.id, { status: "processing", message: "Reading document..." });
 
-      setPreviewRows(preview.rows);
-      setDetectedTables(preview.tables);
-      setRawJson(preview.rawJson);
-      setShowRawJson(preview.usedFallback);
-      setUsedFallbackShape(preview.usedFallback);
-      setPreviewMessage(preview.usedFallback
-        ? "Response received, but the shape was not recognized. Showing fallback table and raw JSON."
-        : "Preview ready. Low-confidence fields are flagged."
-      );
-    } catch (error) {
-      const friendlyMessage = error instanceof ApiError
-        ? error.friendlyMessage
-        : "Something went wrong while processing the document.";
+      try {
+        const result = await extractOcr(item.file);
+        const preview = normalizeOcrResult(result);
 
-      setPreviewRows(samplePreviewRows);
-      setDetectedTables([]);
-      setRawJson(error instanceof ApiError && error.details ? JSON.stringify(error.details, null, 2) : "");
-      setShowRawJson(false);
-      setUsedFallbackShape(error instanceof ApiError && Boolean(error.details));
-      setPreviewMessage(`${friendlyMessage} Showing sample preview instead.`);
-    } finally {
-      setIsProcessing(false);
+        updateFile(item.id, {
+          status: "done",
+          message: preview.usedFallback ? "Done, raw JSON available for review." : "Done",
+          preview,
+          debugDetails: "",
+        });
+        successCount += 1;
+        setActiveResultId(item.id);
+      } catch (error) {
+        const friendlyMessage = error instanceof ApiError
+          ? error.friendlyMessage
+          : "Something went wrong while processing the document.";
+        const debugDetails = error instanceof ApiError && error.details
+          ? JSON.stringify(error.details, null, 2)
+          : "";
+
+        updateFile(item.id, {
+          status: "failed",
+          message: friendlyMessage,
+          debugDetails,
+        });
+        failedCount += 1;
+      } finally {
+        completed += 1;
+        setProcessedCount(completed);
+        setPreviewMessage(`Processing ${completed} of ${filesToProcess.length} files...`);
+      }
+    };
+
+    for (let index = 0; index < filesToProcess.length; index += 2) {
+      await Promise.all(filesToProcess.slice(index, index + 2).map(runFile));
+    }
+
+    setIsProcessing(false);
+    if (successCount > 0 && failedCount > 0) {
+      setPreviewMessage(`Extraction finished. ${successCount} succeeded and ${failedCount} failed.`);
+    } else if (successCount > 0) {
+      setPreviewMessage("Extraction finished. Select any completed file to preview its result.");
+    } else {
+      setPreviewMessage("Extraction finished, but no files succeeded. Showing sample preview instead.");
     }
   };
 
@@ -243,7 +520,7 @@ const ExcelDemoWorkspace: React.FC = () => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "kruzo-document-ai-sample.csv";
+    link.download = activeResultFile ? `${activeResultFile.file.name.replace(/\.[^.]+$/, "")}-kruzo.csv` : "kruzo-document-ai-sample.csv";
     link.click();
     window.URL.revokeObjectURL(url);
     setPreviewMessage("CSV downloaded. Excel can open this file.");
@@ -262,7 +539,7 @@ const ExcelDemoWorkspace: React.FC = () => {
               <p className="text-sm font-semibold uppercase tracking-wide text-secondary">Excel Demo</p>
               <h1 className="mt-2 text-3xl font-bold text-foreground md:text-5xl">Document to Excel Demo</h1>
               <p className="mt-3 max-w-2xl text-muted">
-                Upload a document, review the extracted table, and export it to Excel.
+                Upload documents, review the extracted table, and export the active result to CSV.
               </p>
             </div>
 
@@ -281,37 +558,143 @@ const ExcelDemoWorkspace: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid min-w-0 gap-5 xl:grid-cols-[0.92fr_1.08fr]">
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[5fr_7fr]">
             <div className="min-w-0 space-y-5">
               <div
                 data-tour-target="upload"
                 className={clsx("brand-card min-w-0 rounded-2xl p-5 md:p-6", activeTargetClass("upload"))}
               >
-                <div className="rounded-2xl border-2 border-dashed border-border bg-card-muted p-6 text-center md:p-8">
+                <div
+                  className={clsx(
+                    "rounded-2xl border-2 border-dashed bg-card-muted p-6 text-center transition-colors md:p-8",
+                    isDragActive ? "border-[var(--accent-border)] bg-[var(--accent-soft)]" : "border-border"
+                  )}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setIsDragActive(true);
+                  }}
+                  onDragLeave={() => setIsDragActive(false)}
+                  onDrop={handleDrop}
+                >
                   <div className="brand-icon mx-auto flex h-16 w-16 items-center justify-center rounded-full">
                     <FiUploadCloud size={30} aria-hidden="true" />
                   </div>
-                  <h2 className="mt-5 text-2xl font-semibold">Upload document</h2>
-                  <p className="mt-2 text-muted">PDF, JPG, PNG, or WEBP</p>
+                  <h2 className="mt-5 text-2xl font-semibold">Upload documents</h2>
+                  <p className="mt-2 text-muted">PDF, JPG, PNG, or WEBP. Drag files or folders here.</p>
 
                   <input
                     id="demo-file"
                     type="file"
+                    multiple
                     accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp"
                     className="sr-only"
                     onChange={handleFileChange}
                   />
-                  <label
-                    htmlFor="demo-file"
-                    className="brand-button brand-button-primary button-pop mx-auto mt-6 w-fit cursor-pointer gap-2 px-5 py-2.5"
-                  >
-                    Choose file
-                    <HiArrowRight aria-hidden="true" />
-                  </label>
+                  <input
+                    id="demo-folder"
+                    type="file"
+                    multiple
+                    className="sr-only"
+                    onChange={handleFileChange}
+                    {...folderInputAttributes}
+                  />
+                  <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
+                    <label
+                      htmlFor="demo-file"
+                      className="brand-button brand-button-primary button-pop mx-auto w-fit cursor-pointer gap-2 px-5 py-2.5 sm:mx-0"
+                    >
+                      Choose files
+                      <HiArrowRight aria-hidden="true" />
+                    </label>
+                    <label
+                      htmlFor="demo-folder"
+                      className="brand-button brand-button-secondary button-pop mx-auto w-fit cursor-pointer px-5 py-2.5 sm:mx-0"
+                    >
+                      Choose folder
+                    </label>
+                  </div>
 
                   <p className="mt-4 text-sm text-muted" aria-live="polite">
-                    {fileName || "No file selected yet. Sample data is shown on the right."}
+                    {selectedFiles.length > 0
+                      ? `${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} selected.`
+                      : "No files selected yet. Sample data is shown on the right."}
                   </p>
+                  {uploadWarning && <p className="mt-2 text-sm font-semibold text-secondary">{uploadWarning}</p>}
+                </div>
+              </div>
+
+              <div
+                data-tour-target="fileList"
+                className={clsx("brand-card rounded-2xl p-5", activeTargetClass("fileList"))}
+              >
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-xl font-semibold">Selected files</h2>
+                    <p className="text-sm text-muted">{selectedFiles.length} ready for review</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="nav-link w-fit text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={clearFiles}
+                    disabled={selectedFiles.length === 0 || isProcessing}
+                  >
+                    Clear all
+                  </button>
+                </div>
+
+                <div className={clsx("overflow-y-auto pr-1", maxListHeightClass)}>
+                  {selectedFiles.length === 0 ? (
+                    <div className="rounded-xl border border-border bg-card-muted p-4 text-sm text-muted">
+                      Add one or more documents before extracting.
+                    </div>
+                  ) : (
+                    <div className="grid gap-3">
+                      {selectedFiles.map((item) => (
+                        <div key={item.id} className="rounded-xl border border-border bg-card-muted p-3">
+                          <div className="flex items-start gap-3">
+                            <div className="brand-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+                              <FiFileText aria-hidden="true" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-semibold text-foreground" title={item.label}>{item.label}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+                                <span>{formatFileSize(item.file.size)}</span>
+                                <span
+                                  className={clsx(
+                                    "rounded-full border px-2 py-0.5 font-semibold",
+                                    item.status === "done" && "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary",
+                                    item.status === "failed" && "border-border bg-card text-muted",
+                                    item.status === "processing" && "border-[var(--accent-border)] bg-card text-secondary",
+                                    item.status === "ready" && "border-border bg-card text-muted"
+                                  )}
+                                >
+                                  {statusLabel[item.status]}
+                                </span>
+                                {item.message && <span>{item.message}</span>}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="rounded-full p-2 text-muted transition-colors hover:bg-card hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                              onClick={() => removeFile(item.id)}
+                              disabled={isProcessing}
+                              aria-label={`Remove ${item.label}`}
+                            >
+                              <FiTrash2 aria-hidden="true" />
+                            </button>
+                          </div>
+                          {item.status === "failed" && item.debugDetails && (
+                            <details className="mt-3 rounded-xl border border-border bg-card p-3">
+                              <summary className="cursor-pointer text-sm font-semibold text-foreground">Technical details</summary>
+                              <pre className="mt-3 max-h-40 overflow-auto text-xs text-foreground">
+                                <code>{item.debugDetails}</code>
+                              </pre>
+                            </details>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -378,16 +761,16 @@ const ExcelDemoWorkspace: React.FC = () => {
               <div className="flex flex-col gap-4 border-b border-border bg-card-muted px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <p className="text-sm font-semibold text-secondary">Excel-ready preview</p>
-                  <p className="text-sm text-muted">{previewMessage}</p>
+                  <p className="text-sm text-muted">{processingLabel || previewMessage}</p>
                 </div>
                 <div data-tour-target="previewButton" className={activeTargetClass("previewButton")}>
                   <button
                     type="button"
                     className="brand-button brand-button-primary button-pop gap-2 px-5 py-2.5"
-                    onClick={previewExcel}
-                    disabled={isProcessing}
+                    onClick={extractSelectedFiles}
+                    disabled={isProcessing || selectedFiles.length === 0}
                   >
-                    {isProcessing ? "Processing..." : "Preview Excel"}
+                    {isProcessing ? "Processing..." : "Extract selected files"}
                     {!isProcessing && <HiArrowRight aria-hidden="true" />}
                   </button>
                 </div>
@@ -396,7 +779,7 @@ const ExcelDemoWorkspace: React.FC = () => {
               <div className="p-5 md:p-6">
                 <div className="mb-5 grid gap-3 md:grid-cols-3">
                   {[
-                    ["File", fileName || "Sample repair order"],
+                    ["Files", selectedFiles.length > 0 ? String(selectedFiles.length) : "Sample repair order"],
                     ["Type", documentType],
                     ["Template", excelTemplate],
                   ].map(([label, value]) => (
@@ -406,6 +789,29 @@ const ExcelDemoWorkspace: React.FC = () => {
                     </div>
                   ))}
                 </div>
+
+                {completedFiles.length > 0 && (
+                  <div className="mb-5 rounded-xl border border-border bg-card-muted p-4">
+                    <p className="text-sm font-semibold text-foreground">Completed results</p>
+                    <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                      {completedFiles.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={clsx(
+                            "shrink-0 rounded-full border px-3 py-1.5 text-sm font-semibold transition-colors",
+                            activeResultFile?.id === item.id
+                              ? "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary"
+                              : "border-border bg-card text-muted hover:text-foreground"
+                          )}
+                          onClick={() => setActiveResultId(item.id)}
+                        >
+                          {item.file.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div className="mb-5 rounded-xl border border-border bg-card-muted p-4">
                   <p className="text-sm font-semibold text-foreground">Template matching</p>
@@ -419,7 +825,7 @@ const ExcelDemoWorkspace: React.FC = () => {
                   className={clsx("overflow-hidden rounded-xl border border-border", activeTargetClass("table"))}
                 >
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+                    <table className="w-full min-w-[600px] border-collapse text-left text-sm">
                       <thead className="bg-card-muted text-muted">
                         <tr>
                           <th className="border-b border-border px-4 py-3 font-semibold">Field</th>

@@ -7,7 +7,7 @@ const friendlyMessages: Record<string, string> = {
   WAR_OCR_BIZ_2002: "This file type is not supported. Upload a PDF, JPG, PNG, or WEBP file.",
   WAR_OCR_BIZ_2003: "The uploaded file appears to be empty. Choose another document.",
   WAR_OCR_BIZ_2004: "The custom template is too large. Shorten schema_sample and try again.",
-  ERR_OCR_EXT_3000: "The AI extraction service timed out. Please try again in a moment.",
+  ERR_OCR_EXT_3000: "The OCR provider could not process the request right now. Check backend provider credentials or try again later.",
   ERR_OCR_EXT_3001: "The AI service returned data that could not be parsed. Please try another document.",
 };
 

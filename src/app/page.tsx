@@ -3,12 +3,17 @@ import FAQ from "@/components/FAQ";
 import Container from "@/components/Container";
 import Section from "@/components/Section";
 import CTA from "@/components/CTA";
+import StructuredData from "@/components/StructuredData";
 import Reveal from "@/components/Reveal";
 import { howItWorks, problemPoints, solutionWorkflow, useCases } from "@/data/landing";
+import { createMetadata, faqPageJsonLd, organizationJsonLd, seoRoutes, softwareApplicationJsonLd } from "@/lib/seo";
+
+export const metadata = createMetadata(seoRoutes.home);
 
 const HomePage: React.FC = () => {
   return (
     <>
+      <StructuredData data={[organizationJsonLd, softwareApplicationJsonLd, faqPageJsonLd]} />
       <Hero />
       <Container>
         <Section

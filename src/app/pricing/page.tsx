@@ -3,11 +3,9 @@ import { FiCheckCircle } from "react-icons/fi";
 import { HiArrowRight } from "react-icons/hi2";
 
 import Container from "@/components/Container";
+import { createMetadata, seoRoutes } from "@/lib/seo";
 
-export const metadata = {
-  title: "Kruzo Document AI Pricing",
-  description: "Pilot and custom workflow options for Kruzo Document AI.",
-};
+export const metadata = createMetadata(seoRoutes.pricing);
 
 const plans = [
   {

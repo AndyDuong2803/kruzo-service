@@ -32,28 +32,20 @@ export const footerDetails: {
         {
             text: "Docs",
             url: "/docs"
-        },
-        {
-            text: "Free Workflow Audit",
-            url: "/#audit"
         }
     ],
     ctaLinks: [
         {
-            text: "Excel Demo",
+            text: "Free Workflow Audit",
+            url: "/#audit"
+        },
+        {
+            text: "Try Excel Demo",
             url: "/try"
         },
         {
-            text: "API Playground",
-            url: "/try/api"
-        },
-        {
-            text: "API Keys",
-            url: "/api-keys"
-        },
-        {
-            text: "Free Workflow Audit",
-            url: "/#audit"
+            text: "Read API Docs",
+            url: "/docs"
         }
     ],
     contactText: "For workflow questions, start with the free audit request and share the document flow you want reviewed.",

@@ -33,7 +33,7 @@ const FAQ: React.FC = () => {
                                         <DisclosureButton className="group flex w-full items-center justify-between border-t border-border px-4 pt-7 text-left text-lg transition-colors hover:text-secondary">
                                             <span className="text-2xl font-semibold">{faq.question}</span>
                                             <span className={clsx("ml-4 flex-shrink-0 text-secondary transition-transform duration-200", open ? "rotate-180" : "rotate-0")}>
-                                                {open ? <BiMinus className="w-5 h-5" /> : <BiPlus className="w-5 h-5" />}
+                                                {open ? <BiMinus className="w-5 h-5" aria-hidden="true" /> : <BiPlus className="w-5 h-5" aria-hidden="true" />}
                                             </span>
                                         </DisclosureButton>
                                         <Transition

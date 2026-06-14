@@ -1,12 +1,16 @@
 import ExcelDemoWorkspace from "@/components/demo/ExcelDemoWorkspace";
+import StructuredData from "@/components/StructuredData";
+import { createMetadata, seoRoutes, tryWebApplicationJsonLd } from "@/lib/seo";
 
-export const metadata = {
-  title: "Document to Excel Demo",
-  description: "Upload a document, review the extracted table, and export it to Excel.",
-};
+export const metadata = createMetadata(seoRoutes.try);
 
 const TryPage: React.FC = () => {
-  return <ExcelDemoWorkspace />;
+  return (
+    <>
+      <StructuredData data={tryWebApplicationJsonLd} />
+      <ExcelDemoWorkspace />
+    </>
+  );
 };
 
 export default TryPage;

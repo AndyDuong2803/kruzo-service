@@ -19,14 +19,14 @@ const Footer: React.FC = () => {
                         <p className="mt-2 text-2xl font-semibold md:text-3xl">{footerDetails.conversionLine}</p>
                     </div>
 
-                    <div className="flex flex-col gap-3 sm:flex-row">
+                    <div className="grid w-full gap-3 sm:grid-cols-2 lg:w-auto xl:flex xl:flex-nowrap">
                         {footerDetails.ctaLinks.map((link, index) => (
                             <Link
                                 key={link.text}
                                 href={link.url}
                                 className={index === 0
-                                    ? "brand-button brand-button-primary button-pop gap-2 px-5 py-2.5"
-                                    : "brand-button brand-button-secondary button-pop px-5 py-2.5"
+                                    ? "brand-button brand-button-primary button-pop min-h-11 justify-center gap-2 whitespace-nowrap px-5 py-2.5 text-sm"
+                                    : "brand-button brand-button-secondary button-pop min-h-11 justify-center whitespace-nowrap px-5 py-2.5 text-sm"
                                 }
                             >
                                 {link.text}
