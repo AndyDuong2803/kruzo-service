@@ -47,10 +47,6 @@ export const samplePreviewRows: PreviewRow[] = [
 ];
 
 export const sampleOcrData = {
-  document_type: "repair_order",
-  confidence_level: 9,
-  needs_review: false,
-  language: "en",
   fields: {
     customer_name: {
       value: "Maria Nguyen",
@@ -178,6 +174,13 @@ export const shouldHideFieldKey = (key: string) => {
 };
 
 const isRawTextKey = (key: string) => rawTextKeys.has(normalizeKeyForMatch(key));
+
+const hasStableContractShape = (value: unknown) =>
+  isRecord(value) && (
+    isRecord(value.fields) ||
+    Array.isArray(value.tables) ||
+    isRecord(value.review)
+  );
 
 export const humanizeFieldName = (value: string) =>
   value
@@ -416,6 +419,29 @@ const extractRawText = (payload: unknown, parentKey = "", collected: string[] = 
   return collected;
 };
 
+const extractExplicitRawText = (payload: unknown, parentKey = "", collected: string[] = []) => {
+  if (typeof payload === "string") {
+    if (isRawTextKey(parentKey)) {
+      collected.push(payload);
+    }
+
+    return collected;
+  }
+
+  if (Array.isArray(payload)) {
+    payload.forEach((entry) => extractExplicitRawText(entry, parentKey, collected));
+    return collected;
+  }
+
+  if (isRecord(payload)) {
+    Object.entries(payload).forEach(([key, value]) => {
+      extractExplicitRawText(value, key, collected);
+    });
+  }
+
+  return collected;
+};
+
 const normalizeRows = (rows: unknown): { columns: string[]; rows: string[][] } => {
   if (!Array.isArray(rows) || rows.length === 0) {
     return { columns: [], rows: [] };
@@ -603,7 +629,11 @@ export const isUserFacingPreviewRow = (row: PreviewRow) =>
 
 export const normalizeOcrResult = (payload: unknown): OcrPreview => {
   const rawJson = JSON.stringify(payload, null, 2);
-  const rawText = sanitizeRawText(extractRawText(payload).join("\n\n"));
+  const envelopeData = unwrapEnvelope(payload);
+  const rawTextSource = hasStableContractShape(envelopeData)
+    ? extractExplicitRawText(payload)
+    : extractRawText(payload);
+  const rawText = sanitizeRawText(rawTextSource.join("\n\n"));
 
   if (isRecord(payload) && payload.success === false) {
     return {
@@ -619,7 +649,7 @@ export const normalizeOcrResult = (payload: unknown): OcrPreview => {
     };
   }
 
-  const data = unwrapEnvelope(payload);
+  const data = envelopeData;
 
   if (!isRecord(data)) {
     return {
@@ -634,11 +664,14 @@ export const normalizeOcrResult = (payload: unknown): OcrPreview => {
     };
   }
 
+  const prefersStableContract = hasStableContractShape(data);
   const fieldRows = getFieldContainers(data)
     .map(normalizeFields)
     .find((rows) => rows.length > 0) ?? [];
-  const rows = fieldRows.length > 0 ? fieldRows : flattenBusinessFields(data);
-  const tables = [...normalizeTables(data.tables), ...extractArrayTables(data)];
+  const rows = fieldRows.length > 0 ? fieldRows : prefersStableContract ? [] : flattenBusinessFields(data);
+  const tables = prefersStableContract
+    ? normalizeTables(data.tables)
+    : [...normalizeTables(data.tables), ...extractArrayTables(data)];
   const userRows = rows.filter(isUserFacingPreviewRow);
   const sheets = [fieldsSheetFromRows(userRows), ...workbookSheetsFromTables(tables)];
   const hasUsableData = sheets.some((sheet) => sheet.rows.length > 0);

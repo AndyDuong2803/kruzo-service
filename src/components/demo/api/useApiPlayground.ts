@@ -67,12 +67,9 @@ export const useApiPlayground = () => {
   const sampleResponse = useMemo(
     () => ({
       ...sampleOcrResponse,
-      message:
-        mode === "custom"
-          ? "Custom template data extracted successfully."
-          : "Data extracted successfully.",
+      message: "Data extracted successfully.",
     }),
-    [mode]
+    []
   );
 
   const loadingResponse = useMemo(
