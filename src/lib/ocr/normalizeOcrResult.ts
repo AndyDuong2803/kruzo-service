@@ -1,10 +1,13 @@
 import { ApiEnvelope } from "@/lib/api/types";
+import { confidenceLevelFromValue, type ConfidenceLevel } from "@/lib/ocr/confidence";
+
+export type ReviewState = "Approved" | "Needs review" | "Unknown";
 
 export type PreviewRow = {
   field: string;
   value: string;
-  confidence: string;
-  review: "Approved" | "Needs review";
+  confidence: ConfidenceLevel;
+  review: ReviewState;
 };
 
 export type DetectedTable = {
@@ -17,23 +20,38 @@ export type OcrPreview = {
   rows: PreviewRow[];
   tables: DetectedTable[];
   rawJson: string;
+  rawText: string;
+  debug?: unknown;
+  hasUsableData: boolean;
+  isSample?: boolean;
   usedFallback: boolean;
+  message?: string;
 };
 
+const maxPreviewValueLength = 180;
+const maxRawTextLength = 6000;
+
 export const samplePreviewRows: PreviewRow[] = [
-  { field: "Customer name", value: "Maria Nguyen", confidence: "96%", review: "Approved" },
-  { field: "Document type", value: "Repair order", confidence: "94%", review: "Approved" },
-  { field: "Total amount", value: "$428.60", confidence: "91%", review: "Approved" },
-  { field: "Service notes", value: "Brake inspection and oil change", confidence: "72%", review: "Needs review" },
+  { field: "Customer name", value: "Maria Nguyen", confidence: "High", review: "Approved" },
+  { field: "Invoice number", value: "INV-1048", confidence: "High", review: "Approved" },
+  { field: "Total amount", value: "$428.60", confidence: "High", review: "Approved" },
+  { field: "Service notes", value: "Brake inspection and oil change", confidence: "Medium", review: "Needs review" },
 ];
 
 export const sampleOcrData = {
   document_type: "repair_order",
+  confidence_level: 9,
+  needs_review: false,
   language: "en",
   fields: {
     customer_name: {
       value: "Maria Nguyen",
       confidence: 0.96,
+      review_required: false,
+    },
+    invoice_number: {
+      value: "INV-1048",
+      confidence: 0.94,
       review_required: false,
     },
     total_amount: {
@@ -69,13 +87,95 @@ export const sampleOcrResponse: ApiEnvelope<Record<string, unknown>> = {
   data: sampleOcrData,
 };
 
+const hiddenFieldKeys = new Set([
+  "completion",
+  "confidence",
+  "confidencelevel",
+  "content",
+  "debug",
+  "documenttype",
+  "error",
+  "errorcode",
+  "exception",
+  "json",
+  "language",
+  "markdown",
+  "message",
+  "metadata",
+  "needsreview",
+  "prompt",
+  "provider",
+  "providername",
+  "raw",
+  "rawcontent",
+  "rawjson",
+  "rawmarkdown",
+  "rawoutput",
+  "rawresponse",
+  "rawtext",
+  "requestid",
+  "response",
+  "review",
+  "stack",
+  "status",
+  "success",
+  "text",
+  "trace",
+  "traceid",
+  "usage",
+]);
+
+const hiddenFieldFragments = [
+  "debug",
+  "metadata",
+  "openrouter",
+  "provider",
+  "requestid",
+  "traceid",
+  "rawtext",
+  "rawjson",
+  "prompt",
+  "tokenusage",
+  "stacktrace",
+];
+
+const rawTextKeys = new Set([
+  "fulltext",
+  "markdown",
+  "ocrtext",
+  "plaintext",
+  "rawmarkdown",
+  "rawtext",
+  "text",
+]);
+
+const tableCandidatePattern = /(items?|lineitems?|products?|services?|charges?|fees?|rows?|tables?|transactions?|repairs?)/i;
+
+const normalizeKeyForMatch = (value: string) => value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+export const shouldHideFieldKey = (key: string) => {
+  const normalized = normalizeKeyForMatch(key);
+
+  return (
+    hiddenFieldKeys.has(normalized) ||
+    hiddenFieldFragments.some((fragment) => normalized.includes(fragment))
+  );
+};
+
+const isRawTextKey = (key: string) => rawTextKeys.has(normalizeKeyForMatch(key));
+
 export const humanizeFieldName = (value: string) =>
   value
     .replace(/[_-]+/g, " ")
     .replace(/\./g, " / ")
     .replace(/\s+/g, " ")
     .trim()
-    .replace(/^./, (letter) => letter.toUpperCase());
+    .replace(/^./, (letter) => letter.toUpperCase())
+    .replace(/\bId\b/g, "ID")
+    .replace(/\bUrl\b/g, "URL")
+    .replace(/\bApi\b/g, "API")
+    .replace(/\bPdf\b/g, "PDF")
+    .replace(/\bSku\b/g, "SKU");
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -92,67 +192,171 @@ const stringifyValue = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-const formatConfidence = (value: unknown): string => {
-  if (typeof value === "number") {
-    return value <= 1 ? `${Math.round(value * 100)}%` : `${Math.round(value)}%`;
-  }
+const normalizeWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
 
-  if (typeof value === "string") {
-    return value.includes("%") ? value : value;
-  }
+const isLargeTextBlob = (value: string) => {
+  const trimmed = value.trim();
+  const lineBreaks = (trimmed.match(/\n/g) ?? []).length;
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
 
-  return "-";
+  return trimmed.length > 280 && (lineBreaks >= 3 || wordCount >= 45);
 };
 
-const isReviewRequired = (fieldValue: Record<string, unknown>, confidence: unknown) => {
+const clampValue = (value: string, maxLength = maxPreviewValueLength) => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 1).trimEnd()}...`;
+};
+
+const sanitizePreviewValue = (value: unknown) => {
+  const text = normalizeWhitespace(stringifyValue(value));
+
+  if (!text || text === "null" || text === "undefined") {
+    return "";
+  }
+
+  return clampValue(text);
+};
+
+const sanitizeRawText = (value: string) => {
+  const trimmed = value.trim();
+
+  if (trimmed.length <= maxRawTextLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maxRawTextLength).trimEnd()}\n\n[Raw text truncated for preview.]`;
+};
+
+const reviewStateFromField = (fieldValue: Record<string, unknown>, confidence: unknown): ReviewState => {
   if (fieldValue.review_required === true || fieldValue.needs_review === true) {
-    return true;
+    return "Needs review";
+  }
+
+  if (fieldValue.review_required === false || fieldValue.needs_review === false) {
+    return "Approved";
   }
 
   if (typeof confidence === "number") {
-    return confidence <= 0.8 || (confidence > 1 && confidence <= 80);
+    return confidence <= 0.8 || (confidence > 1 && confidence <= 80) ? "Needs review" : "Approved";
   }
 
-  return false;
+  return "Unknown";
 };
 
 const looksLikeExtractedField = (value: Record<string, unknown>) =>
-  "value" in value || "text" in value || "extracted_value" in value || "confidence" in value || "score" in value;
+  "value" in value ||
+  "extracted_value" in value ||
+  "raw_value" in value ||
+  "confidence" in value ||
+  "score" in value ||
+  "review_required" in value ||
+  "needs_review" in value;
 
-const rowFromField = (key: string, value: unknown): PreviewRow => {
+const getExtractedFieldValue = (value: Record<string, unknown>) => {
+  if ("value" in value) {
+    return value.value;
+  }
+
+  if ("extracted_value" in value) {
+    return value.extracted_value;
+  }
+
+  if ("raw_value" in value) {
+    return value.raw_value;
+  }
+
+  return value.text;
+};
+
+const rowFromField = (key: string, value: unknown): PreviewRow | null => {
+  if (shouldHideFieldKey(key)) {
+    return null;
+  }
+
   if (isRecord(value) && looksLikeExtractedField(value)) {
-    const confidence = value.confidence ?? value.score;
+    const extractedValue = getExtractedFieldValue(value);
+    const stringValue = stringifyValue(extractedValue);
+
+    if (isRawTextKey(key) || isLargeTextBlob(stringValue)) {
+      return null;
+    }
+
+    const sanitizedValue = sanitizePreviewValue(extractedValue);
+
+    if (!sanitizedValue) {
+      return null;
+    }
+
+    const confidence = value.confidence ?? value.score ?? value.confidence_level;
 
     return {
       field: humanizeFieldName(key),
-      value: stringifyValue(value.value ?? value.text ?? value.extracted_value ?? value),
-      confidence: formatConfidence(confidence),
-      review: isReviewRequired(value, confidence) ? "Needs review" : "Approved",
+      value: sanitizedValue,
+      confidence: confidenceLevelFromValue(confidence),
+      review: reviewStateFromField(value, confidence),
     };
+  }
+
+  if (Array.isArray(value) || isRecord(value)) {
+    return null;
+  }
+
+  const stringValue = stringifyValue(value);
+
+  if (isLargeTextBlob(stringValue)) {
+    return null;
+  }
+
+  const sanitizedValue = sanitizePreviewValue(value);
+
+  if (!sanitizedValue) {
+    return null;
   }
 
   return {
     field: humanizeFieldName(key),
-    value: stringifyValue(value),
-    confidence: "-",
+    value: sanitizedValue,
+    confidence: "Medium",
     review: "Approved",
   };
 };
 
 const normalizeFields = (fields: unknown): PreviewRow[] => {
+  if (Array.isArray(fields)) {
+    return fields
+      .map((field, index) => {
+        if (!isRecord(field)) {
+          return rowFromField(`Field ${index + 1}`, field);
+        }
+
+        const key = stringifyValue(field.field ?? field.name ?? field.key ?? field.label ?? `Field ${index + 1}`);
+        return rowFromField(key, field);
+      })
+      .filter((row): row is PreviewRow => Boolean(row));
+  }
+
   if (!isRecord(fields)) {
     return [];
   }
 
-  return Object.entries(fields).map(([key, value]) => rowFromField(key, value));
+  return Object.entries(fields)
+    .map(([key, value]) => rowFromField(key, value))
+    .filter((row): row is PreviewRow => Boolean(row));
 };
 
-const flattenObjectFields = (
+const flattenBusinessFields = (
   value: Record<string, unknown>,
   prefix = "",
   rows: PreviewRow[] = []
 ) => {
   Object.entries(value).forEach(([key, entry]) => {
+    if (key === "tables" || key === "fields" || shouldHideFieldKey(key)) {
+      return;
+    }
+
     const path = prefix ? `${prefix}.${key}` : key;
 
     if (Array.isArray(entry)) {
@@ -160,14 +364,41 @@ const flattenObjectFields = (
     }
 
     if (isRecord(entry) && !looksLikeExtractedField(entry)) {
-      flattenObjectFields(entry, path, rows);
+      flattenBusinessFields(entry, path, rows);
       return;
     }
 
-    rows.push(rowFromField(path, entry));
+    const row = rowFromField(path, entry);
+
+    if (row) {
+      rows.push(row);
+    }
   });
 
   return rows;
+};
+
+const extractRawText = (payload: unknown, parentKey = "", collected: string[] = []) => {
+  if (typeof payload === "string") {
+    if (isRawTextKey(parentKey) || isLargeTextBlob(payload)) {
+      collected.push(payload);
+    }
+
+    return collected;
+  }
+
+  if (Array.isArray(payload)) {
+    payload.forEach((entry) => extractRawText(entry, parentKey, collected));
+    return collected;
+  }
+
+  if (isRecord(payload)) {
+    Object.entries(payload).forEach(([key, value]) => {
+      extractRawText(value, key, collected);
+    });
+  }
+
+  return collected;
 };
 
 const normalizeRows = (rows: unknown): { columns: string[]; rows: string[][] } => {
@@ -178,33 +409,55 @@ const normalizeRows = (rows: unknown): { columns: string[]; rows: string[][] } =
   const firstRow = rows[0];
 
   if (Array.isArray(firstRow)) {
-    const width = Math.max(...rows.map((row) => Array.isArray(row) ? row.length : 0));
+    const width = Math.max(...rows.map((row) => (Array.isArray(row) ? row.length : 0)));
     const columns = Array.from({ length: width }, (_, index) => `Column ${index + 1}`);
 
     return {
       columns,
-      rows: rows.map((row) => Array.isArray(row) ? row.map(stringifyValue) : [stringifyValue(row)]),
+      rows: rows.map((row) =>
+        Array.isArray(row)
+          ? row.map((cell) => sanitizePreviewValue(cell))
+          : [sanitizePreviewValue(row)]
+      ),
     };
   }
 
   if (isRecord(firstRow)) {
-    const columns = Array.from(new Set(rows.flatMap((row) => isRecord(row) ? Object.keys(row) : [])));
+    const rawColumns = Array.from(
+      new Set(rows.flatMap((row) => (isRecord(row) ? Object.keys(row) : [])))
+    ).filter((column) => !shouldHideFieldKey(column));
 
-    return {
-      columns,
-      rows: rows.map((row) => {
+    const columns = rawColumns.filter((column) =>
+      rows.some((row) => {
         if (!isRecord(row)) {
-          return columns.map(() => "");
+          return false;
         }
 
-        return columns.map((column) => stringifyValue(row[column]));
-      }),
+        const value = row[column];
+        const text = stringifyValue(value);
+        return sanitizePreviewValue(value).length > 0 && !isLargeTextBlob(text);
+      })
+    );
+
+    return {
+      columns: columns.map(humanizeFieldName),
+      rows: rows
+        .map((row) => {
+          if (!isRecord(row)) {
+            return columns.map(() => "");
+          }
+
+          return columns.map((column) => sanitizePreviewValue(row[column]));
+        })
+        .filter((row) => row.some(Boolean)),
     };
   }
 
   return {
     columns: ["Value"],
-    rows: rows.map((row) => [stringifyValue(row)]),
+    rows: rows
+      .map((row) => [sanitizePreviewValue(row)])
+      .filter((row) => row.some(Boolean)),
   };
 };
 
@@ -213,34 +466,46 @@ const normalizeTables = (tables: unknown): DetectedTable[] => {
     return [];
   }
 
-  return tables.map((table, index) => {
-    if (isRecord(table)) {
-      const normalized = normalizeRows(table.rows ?? table.data ?? []);
-      const providedColumns = Array.isArray(table.columns)
-        ? table.columns.map(stringifyValue)
-        : [];
-      const columns = providedColumns.length > 0 ? providedColumns : normalized.columns;
+  return tables
+    .map((table, index) => {
+      if (isRecord(table)) {
+        const rowPayload = table.rows ?? table.data ?? table.items ?? [];
+        const normalized = normalizeRows(rowPayload);
+        const providedColumns = Array.isArray(table.columns)
+          ? table.columns
+              .map(stringifyValue)
+              .filter((column) => column && !shouldHideFieldKey(column))
+              .map(humanizeFieldName)
+          : [];
+        const columns = providedColumns.length > 0 ? providedColumns : normalized.columns;
+
+        return {
+          name: shouldHideFieldKey(stringifyValue(table.name)) ? `Table ${index + 1}` : stringifyValue(table.name ?? `Table ${index + 1}`),
+          columns,
+          rows: normalized.rows,
+        };
+      }
+
+      const normalized = normalizeRows(table);
 
       return {
-        name: stringifyValue(table.name ?? `Table ${index + 1}`),
-        columns,
+        name: `Table ${index + 1}`,
+        columns: normalized.columns,
         rows: normalized.rows,
       };
-    }
-
-    const normalized = normalizeRows(table);
-
-    return {
-      name: `Table ${index + 1}`,
-      columns: normalized.columns,
-      rows: normalized.rows,
-    };
-  }).filter((table) => table.rows.length > 0 || table.columns.length > 0);
+    })
+    .filter((table) => table.rows.length > 0 && table.columns.length > 0);
 };
 
 const extractArrayTables = (payload: Record<string, unknown>): DetectedTable[] =>
   Object.entries(payload)
-    .filter(([key, value]) => key !== "tables" && Array.isArray(value) && value.length > 0)
+    .filter(([key, value]) =>
+      key !== "tables" &&
+      !shouldHideFieldKey(key) &&
+      tableCandidatePattern.test(key) &&
+      Array.isArray(value) &&
+      value.length > 0
+    )
     .flatMap(([key, value]) =>
       normalizeTables([{ name: humanizeFieldName(key), rows: value }])
     );
@@ -253,30 +518,71 @@ const unwrapEnvelope = (payload: unknown) => {
   return payload;
 };
 
+const getFieldContainers = (data: Record<string, unknown>) => {
+  const result = isRecord(data.result) ? data.result : undefined;
+  const extraction = isRecord(data.extraction) ? data.extraction : undefined;
+
+  return [
+    data.fields,
+    data.extracted_fields,
+    data.extractedFields,
+    data.structured_fields,
+    data.structuredFields,
+    data.entities,
+    result?.fields,
+    extraction?.fields,
+  ];
+};
+
+export const isUserFacingPreviewRow = (row: PreviewRow) =>
+  Boolean(row.field && row.value) && !shouldHideFieldKey(row.field);
+
 export const normalizeOcrResult = (payload: unknown): OcrPreview => {
   const rawJson = JSON.stringify(payload, null, 2);
+  const rawText = sanitizeRawText(extractRawText(payload).join("\n\n"));
+
+  if (isRecord(payload) && payload.success === false) {
+    return {
+      rows: [],
+      tables: [],
+      rawJson,
+      rawText,
+      debug: payload,
+      hasUsableData: false,
+      usedFallback: true,
+      message: stringifyValue(payload.message),
+    };
+  }
+
   const data = unwrapEnvelope(payload);
 
   if (!isRecord(data)) {
     return {
-      rows: samplePreviewRows,
+      rows: [],
       tables: [],
       rawJson,
+      rawText,
+      debug: payload,
+      hasUsableData: false,
       usedFallback: true,
     };
   }
 
-  const fieldRows = normalizeFields(data.fields);
-  const rows = fieldRows.length > 0 ? fieldRows : flattenObjectFields(
-    Object.fromEntries(Object.entries(data).filter(([key]) => key !== "tables"))
-  );
+  const fieldRows = getFieldContainers(data)
+    .map(normalizeFields)
+    .find((rows) => rows.length > 0) ?? [];
+  const rows = fieldRows.length > 0 ? fieldRows : flattenBusinessFields(data);
   const tables = [...normalizeTables(data.tables), ...extractArrayTables(data)];
-  const hasKnownShape = rows.length > 0 || tables.length > 0;
+  const userRows = rows.filter(isUserFacingPreviewRow);
+  const hasUsableData = userRows.length > 0 || tables.length > 0;
 
   return {
-    rows: rows.length > 0 ? rows : samplePreviewRows,
+    rows: userRows,
     tables,
     rawJson,
-    usedFallback: !hasKnownShape,
+    rawText,
+    debug: hasUsableData ? undefined : payload,
+    hasUsableData,
+    usedFallback: !hasUsableData,
   };
 };

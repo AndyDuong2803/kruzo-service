@@ -8,7 +8,7 @@ const friendlyMessages: Record<string, string> = {
   WAR_OCR_BIZ_2003: "The uploaded file appears to be empty. Choose another document.",
   WAR_OCR_BIZ_2004: "The custom template is too large. Shorten schema_sample and try again.",
   ERR_OCR_EXT_3000: "The OCR provider could not process the request right now. Check backend provider credentials or try again later.",
-  ERR_OCR_EXT_3001: "The AI service returned data that could not be parsed. Please try another document.",
+  ERR_OCR_EXT_3001: "The AI could not structure this document. Try another file or request workflow help.",
 };
 
 type ApiErrorOptions = {
@@ -39,7 +39,7 @@ export const friendlyOcrErrorMessage = (errorCode?: string | null, fallbackMessa
     return friendlyMessages[errorCode];
   }
 
-  if (fallbackMessage && !/stack|trace|exception/i.test(fallbackMessage)) {
+  if (fallbackMessage && !/stack|trace|exception|openrouter|provider|ERR_|WAR_|CRI_/i.test(fallbackMessage)) {
     return fallbackMessage;
   }
 

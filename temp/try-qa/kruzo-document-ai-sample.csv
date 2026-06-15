@@ -1,0 +1,5 @@
+"Field","Extracted value","Confidence","Review"
+"Customer name","Maria Nguyen","96%","Approved"
+"Document type","Repair order","94%","Approved"
+"Total amount","$428.60","91%","Approved"
+"Service notes","Brake inspection and oil change","72%","Needs review"
