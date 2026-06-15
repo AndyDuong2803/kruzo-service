@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { FiDownload, FiX } from "react-icons/fi";
-
-import type { PreviewRow } from "@/lib/ocr/normalizeOcrResult";
 
 import ExcelSheetViewer from "./ExcelSheetViewer";
 import type { ProcessedUpload, WorkbookSheet } from "./types";
@@ -12,14 +10,15 @@ import type { ProcessedUpload, WorkbookSheet } from "./types";
 type ResultPreviewModalProps = {
   result?: ProcessedUpload;
   onClose: () => void;
-  onDownloadCsv: () => void;
+  onDownloadCsv: (sheet?: WorkbookSheet) => void;
+  onDownloadWorkbook: () => void;
 };
 
 const statusClassName: Record<ProcessedUpload["status"], string> = {
   queued: "border-border bg-card text-muted",
-  processing: "border-amber-300/70 bg-amber-100 text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100",
-  done: "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary",
-  failed: "border-red-300/70 bg-red-100 text-red-900 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-100",
+  processing: "border-amber-500 bg-amber-100 text-amber-950 dark:border-amber-400 dark:bg-amber-500/20 dark:text-amber-100",
+  done: "border-emerald-600 bg-emerald-100 text-emerald-900 dark:border-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-100",
+  failed: "border-red-700 bg-red-600 text-white dark:border-red-400 dark:bg-red-500 dark:text-white",
 };
 
 const statusLabel: Record<ProcessedUpload["status"], string> = {
@@ -29,19 +28,13 @@ const statusLabel: Record<ProcessedUpload["status"], string> = {
   failed: "Failed",
 };
 
-const buildFieldSheet = (previewRows: PreviewRow[]): WorkbookSheet => {
-  const columns = ["Field", "Extracted value", "Confidence", "Review"];
-
-  return {
-    id: "fields",
-    label: "Extracted fields",
-    columns,
-    rows: previewRows.map((row) => [row.field, row.value, row.confidence, row.review]),
-    description: "Clean user-facing fields ready for CSV export.",
-  };
-};
-
-const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose, onDownloadCsv }) => {
+const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({
+  result,
+  onClose,
+  onDownloadCsv,
+  onDownloadWorkbook,
+}) => {
+  const [activeSheetId, setActiveSheetId] = useState("");
   const preview = result?.status === "done" ? result.preview : undefined;
   const canDownload = Boolean(result?.status === "done" && preview?.hasUsableData);
   const sheets = useMemo<WorkbookSheet[]>(() => {
@@ -49,17 +42,9 @@ const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose
       return [];
     }
 
-    return [
-      buildFieldSheet(preview.rows),
-      ...preview.tables.map((table, index) => ({
-        id: `table-${index + 1}`,
-        label: `Table ${index + 1}`,
-        columns: table.columns,
-        rows: table.rows,
-        description: table.name && table.name !== `Table ${index + 1}` ? table.name : undefined,
-      })),
-    ];
+    return preview.sheets.filter((sheet) => sheet.rows.length > 0);
   }, [preview]);
+  const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0];
 
   useEffect(() => {
     if (!result) {
@@ -81,6 +66,10 @@ const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [onClose, result]);
+
+  useEffect(() => {
+    setActiveSheetId(sheets[0]?.id ?? "");
+  }, [result?.id, sheets]);
 
   if (!result) {
     return null;
@@ -116,14 +105,24 @@ const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose
 
           <div className="flex shrink-0 flex-wrap gap-2">
             {canDownload && (
-              <button
-                type="button"
-                className="brand-button brand-button-primary button-pop gap-2 px-4 py-2 text-sm"
-                onClick={onDownloadCsv}
-              >
-                <FiDownload aria-hidden="true" />
-                Download CSV
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="brand-button brand-button-primary button-pop gap-2 px-4 py-2 text-sm"
+                  onClick={onDownloadWorkbook}
+                >
+                  <FiDownload aria-hidden="true" />
+                  Download XLSX
+                </button>
+                <button
+                  type="button"
+                  className="brand-button brand-button-secondary button-pop gap-2 px-4 py-2 text-sm"
+                  onClick={() => onDownloadCsv(activeSheet)}
+                >
+                  <FiDownload aria-hidden="true" />
+                  Download CSV
+                </button>
+              </>
             )}
             <button
               type="button"
@@ -142,7 +141,7 @@ const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose
             <div className="rounded-2xl border border-border bg-card-muted p-5">
               <h3 className="text-xl font-semibold text-foreground">Extraction failed</h3>
               <p className="mt-2 text-sm text-muted">
-                {result.message || "The AI could not structure this document. Try another file or request workflow help."}
+                The AI could not structure this document. Try another file or request workflow help.
               </p>
               <p className="mt-3 text-sm text-muted">Try another file, or request a workflow audit for a custom template.</p>
             </div>
@@ -152,7 +151,12 @@ const ResultPreviewModal: React.FC<ResultPreviewModalProps> = ({ result, onClose
               <p className="mt-2 text-sm text-muted">{result.message || "Kruzo is still processing this file."}</p>
             </div>
           ) : sheets.length > 0 ? (
-            <ExcelSheetViewer sheets={sheets} sheetStateKey={result.id} />
+            <ExcelSheetViewer
+              sheets={sheets}
+              sheetStateKey={result.id}
+              activeSheetId={activeSheet?.id}
+              onActiveSheetChange={setActiveSheetId}
+            />
           ) : (
             <div className="rounded-2xl border border-dashed border-border bg-card-muted p-5 text-sm text-muted">
               Kruzo could not find structured fields in this document.

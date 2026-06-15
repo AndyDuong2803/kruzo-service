@@ -1,4 +1,4 @@
-import type { OcrPreview } from "@/lib/ocr/normalizeOcrResult";
+import type { OcrPreview, WorkbookSheet } from "@/lib/ocr/normalizeOcrResult";
 
 export type TourTarget = "upload" | "fileList" | "submit" | "settings" | "history" | "modalPreview";
 
@@ -56,10 +56,4 @@ export type DemoOption = {
   label: string;
 };
 
-export type WorkbookSheet = {
-  id: string;
-  label: string;
-  columns: string[];
-  rows: string[][];
-  description?: string;
-};
+export type { WorkbookSheet };

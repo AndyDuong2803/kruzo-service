@@ -16,9 +16,17 @@ export type DetectedTable = {
   rows: string[][];
 };
 
+export type WorkbookSheet = {
+  id: string;
+  name: string;
+  columns: string[];
+  rows: string[][];
+};
+
 export type OcrPreview = {
   rows: PreviewRow[];
   tables: DetectedTable[];
+  sheets: WorkbookSheet[];
   rawJson: string;
   rawText: string;
   debug?: unknown;
@@ -149,9 +157,16 @@ const rawTextKeys = new Set([
   "text",
 ]);
 
-const tableCandidatePattern = /(items?|lineitems?|products?|services?|charges?|fees?|rows?|tables?|transactions?|repairs?)/i;
-
 const normalizeKeyForMatch = (value: string) => value.replace(/[^a-z0-9]/gi, "").toLowerCase();
+
+const sheetIdFromName = (value: string, index: number) => {
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return normalized ? `${normalized}-${index}` : `sheet-${index}`;
+};
 
 export const shouldHideFieldKey = (key: string) => {
   const normalized = normalizeKeyForMatch(key);
@@ -435,7 +450,7 @@ const normalizeRows = (rows: unknown): { columns: string[]; rows: string[][] } =
 
         const value = row[column];
         const text = stringifyValue(value);
-        return sanitizePreviewValue(value).length > 0 && !isLargeTextBlob(text);
+        return !Array.isArray(value) && !isRecord(value) && sanitizePreviewValue(value).length > 0 && !isLargeTextBlob(text);
       })
     );
 
@@ -447,16 +462,24 @@ const normalizeRows = (rows: unknown): { columns: string[]; rows: string[][] } =
             return columns.map(() => "");
           }
 
-          return columns.map((column) => sanitizePreviewValue(row[column]));
+          return columns.map((column) => {
+            const value = row[column];
+
+            if (Array.isArray(value) || isRecord(value)) {
+              return "";
+            }
+
+            return sanitizePreviewValue(value);
+          });
         })
         .filter((row) => row.some(Boolean)),
     };
   }
 
   return {
-    columns: ["Value"],
+    columns: ["Index", "Value"],
     rows: rows
-      .map((row) => [sanitizePreviewValue(row)])
+      .map((row, index) => [String(index + 1), sanitizePreviewValue(row)])
       .filter((row) => row.some(Boolean)),
   };
 };
@@ -497,18 +520,59 @@ const normalizeTables = (tables: unknown): DetectedTable[] => {
     .filter((table) => table.rows.length > 0 && table.columns.length > 0);
 };
 
-const extractArrayTables = (payload: Record<string, unknown>): DetectedTable[] =>
-  Object.entries(payload)
-    .filter(([key, value]) =>
-      key !== "tables" &&
-      !shouldHideFieldKey(key) &&
-      tableCandidatePattern.test(key) &&
-      Array.isArray(value) &&
-      value.length > 0
-    )
-    .flatMap(([key, value]) =>
-      normalizeTables([{ name: humanizeFieldName(key), rows: value }])
-    );
+const extractArrayTables = (
+  payload: Record<string, unknown>,
+  prefix = "",
+  tables: DetectedTable[] = []
+) => {
+  Object.entries(payload).forEach(([key, value]) => {
+    if (key === "tables" || key === "fields" || shouldHideFieldKey(key)) {
+      return;
+    }
+
+    const path = prefix ? `${prefix}.${key}` : key;
+
+    if (Array.isArray(value)) {
+      const normalized = normalizeRows(value);
+
+      if (normalized.columns.length > 0 && normalized.rows.length > 0) {
+        tables.push({
+          name: humanizeFieldName(path),
+          columns: normalized.columns,
+          rows: normalized.rows,
+        });
+      }
+
+      value.forEach((entry) => {
+        if (isRecord(entry)) {
+          extractArrayTables(entry, path, tables);
+        }
+      });
+      return;
+    }
+
+    if (isRecord(value) && !looksLikeExtractedField(value)) {
+      extractArrayTables(value, path, tables);
+    }
+  });
+
+  return tables;
+};
+
+const fieldsSheetFromRows = (rows: PreviewRow[]): WorkbookSheet => ({
+  id: "extracted-fields",
+  name: "Extracted fields",
+  columns: ["Field", "Extracted value", "Confidence", "Review"],
+  rows: rows.map((row) => [row.field, row.value, row.confidence, row.review]),
+});
+
+const workbookSheetsFromTables = (tables: DetectedTable[]): WorkbookSheet[] =>
+  tables.map((table, index) => ({
+    id: sheetIdFromName(table.name || `Table ${index + 1}`, index + 2),
+    name: table.name || `Table ${index + 1}`,
+    columns: table.columns,
+    rows: table.rows,
+  }));
 
 const unwrapEnvelope = (payload: unknown) => {
   if (isRecord(payload) && "success" in payload && "data" in payload) {
@@ -545,6 +609,7 @@ export const normalizeOcrResult = (payload: unknown): OcrPreview => {
     return {
       rows: [],
       tables: [],
+      sheets: [],
       rawJson,
       rawText,
       debug: payload,
@@ -560,6 +625,7 @@ export const normalizeOcrResult = (payload: unknown): OcrPreview => {
     return {
       rows: [],
       tables: [],
+      sheets: [],
       rawJson,
       rawText,
       debug: payload,
@@ -574,11 +640,13 @@ export const normalizeOcrResult = (payload: unknown): OcrPreview => {
   const rows = fieldRows.length > 0 ? fieldRows : flattenBusinessFields(data);
   const tables = [...normalizeTables(data.tables), ...extractArrayTables(data)];
   const userRows = rows.filter(isUserFacingPreviewRow);
-  const hasUsableData = userRows.length > 0 || tables.length > 0;
+  const sheets = [fieldsSheetFromRows(userRows), ...workbookSheetsFromTables(tables)];
+  const hasUsableData = sheets.some((sheet) => sheet.rows.length > 0);
 
   return {
     rows: userRows,
     tables,
+    sheets,
     rawJson,
     rawText,
     debug: hasUsableData ? undefined : payload,

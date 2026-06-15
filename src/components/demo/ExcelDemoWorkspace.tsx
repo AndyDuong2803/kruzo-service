@@ -36,7 +36,9 @@ const ExcelDemoWorkspace: React.FC = () => {
     selectActiveResult,
     closeResultModal,
     downloadActiveCsv,
+    downloadActiveWorkbook,
     downloadHistoryCsv,
+    downloadHistoryWorkbook,
     dismissToast,
   } = useUploadQueue();
   const {
@@ -123,12 +125,18 @@ const ExcelDemoWorkspace: React.FC = () => {
               modalHighlighted={isTargetActive("modalPreview")}
               onViewResult={selectActiveResult}
               onDownloadCsv={downloadHistoryCsv}
+              onDownloadWorkbook={downloadHistoryWorkbook}
             />
           </div>
         </div>
       </Container>
 
-      <ResultPreviewModal result={activeResultFile} onClose={closeResultModal} onDownloadCsv={downloadActiveCsv} />
+      <ResultPreviewModal
+        result={activeResultFile}
+        onClose={closeResultModal}
+        onDownloadCsv={downloadActiveCsv}
+        onDownloadWorkbook={downloadActiveWorkbook}
+      />
       <Toast toasts={toasts} onDismiss={dismissToast} />
 
       {tourOpen && currentStep && (

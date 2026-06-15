@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 
 import type { WorkbookSheet } from "./types";
@@ -8,6 +8,8 @@ import type { WorkbookSheet } from "./types";
 type ExcelSheetViewerProps = {
   sheets: WorkbookSheet[];
   sheetStateKey?: string;
+  activeSheetId?: string;
+  onActiveSheetChange?: (sheetId: string) => void;
 };
 
 const getColumnLetter = (index: number) => {
@@ -43,19 +45,29 @@ const badgeClassName = (column: string, value: string) => {
   return "";
 };
 
-const ExcelSheetViewer: React.FC<ExcelSheetViewerProps> = ({ sheets, sheetStateKey }) => {
-  const [activeSheetId, setActiveSheetId] = useState(sheets[0]?.id ?? "");
+const ExcelSheetViewer: React.FC<ExcelSheetViewerProps> = ({
+  sheets,
+  sheetStateKey,
+  activeSheetId: controlledActiveSheetId,
+  onActiveSheetChange,
+}) => {
+  const [internalActiveSheetId, setInternalActiveSheetId] = useState(sheets[0]?.id ?? "");
   const firstSheetId = sheets[0]?.id ?? "";
+  const activeSheetId = controlledActiveSheetId ?? internalActiveSheetId;
+  const setActiveSheetId = useCallback((sheetId: string) => {
+    setInternalActiveSheetId(sheetId);
+    onActiveSheetChange?.(sheetId);
+  }, [onActiveSheetChange]);
 
   useEffect(() => {
     setActiveSheetId(firstSheetId);
-  }, [firstSheetId, sheetStateKey]);
+  }, [firstSheetId, setActiveSheetId, sheetStateKey]);
 
   useEffect(() => {
     if (!sheets.some((sheet) => sheet.id === activeSheetId)) {
       setActiveSheetId(firstSheetId);
     }
-  }, [activeSheetId, firstSheetId, sheets]);
+  }, [activeSheetId, firstSheetId, setActiveSheetId, sheets]);
 
   const activeSheet = useMemo(
     () => sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0],
@@ -71,8 +83,7 @@ const ExcelSheetViewer: React.FC<ExcelSheetViewerProps> = ({ sheets, sheetStateK
       <div className="border-b border-border bg-card-muted px-4 py-3">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold text-foreground">{activeSheet.label}</p>
-            {activeSheet.description && <p className="text-xs text-muted">{activeSheet.description}</p>}
+            <p className="text-sm font-semibold text-foreground">{activeSheet.name}</p>
           </div>
           <div className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-muted">
             {activeSheet.rows.length} row{activeSheet.rows.length === 1 ? "" : "s"}
@@ -157,7 +168,7 @@ const ExcelSheetViewer: React.FC<ExcelSheetViewerProps> = ({ sheets, sheetStateK
               aria-pressed={sheet.id === activeSheet.id}
               onClick={() => setActiveSheetId(sheet.id)}
             >
-              {sheet.label}
+              {sheet.name}
             </button>
           ))}
         </div>

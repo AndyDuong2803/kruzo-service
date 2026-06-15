@@ -12,3 +12,15 @@ export type ExtractModeOption = {
   label: string;
   description: string;
 };
+
+export type ApiHistoryItem = {
+  id: string;
+  timeLabel: string;
+  endpointPath: string;
+  filename: string;
+  mode: ExtractMode;
+  status: "success" | "error";
+  requestSummary: string;
+  responseJson: string;
+  message: string;
+};

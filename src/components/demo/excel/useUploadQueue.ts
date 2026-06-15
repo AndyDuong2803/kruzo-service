@@ -5,8 +5,9 @@ import { useMemo, useState } from "react";
 import { hasConfiguredApiBaseUrl } from "@/lib/api/config";
 import { ApiError } from "@/lib/api/errors";
 import { extractOcr } from "@/lib/api/ocr";
-import { buildCsvFromPreviewRows } from "@/lib/ocr/exportCsv";
-import { normalizeOcrResult, type PreviewRow } from "@/lib/ocr/normalizeOcrResult";
+import { buildCsvFromSheet } from "@/lib/ocr/exportCsv";
+import { buildWorkbookBlob } from "@/lib/ocr/exportWorkbook";
+import { normalizeOcrResult, type WorkbookSheet } from "@/lib/ocr/normalizeOcrResult";
 
 import {
   defaultPreviewMessage,
@@ -22,6 +23,12 @@ const timeLabel = (date = new Date()) =>
   date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const pluralFile = (count: number) => `${count} file${count === 1 ? "" : "s"}`;
+
+const filenameBase = (filename: string) =>
+  filename.replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "-").replace(/^-|-$/g, "") || "kruzo-document";
+
+const sheetFilenamePart = (sheetName: string) =>
+  sheetName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "sheet";
 
 export const useUploadQueue = () => {
   const [selectedFiles, setSelectedFiles] = useState<SelectedUpload[]>([]);
@@ -75,19 +82,41 @@ export const useUploadQueue = () => {
     setProcessingHistory((current) => current.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   };
 
-  const downloadRows = (rows: PreviewRow[], filename: string) => {
-    if (rows.length === 0) {
-      return;
-    }
-
-    const blob = new Blob([buildCsvFromPreviewRows(rows)], { type: "text/csv;charset=utf-8" });
+  const downloadBlob = (blob: Blob, filename: string, successMessage: string) => {
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.download = filename;
     link.click();
     window.URL.revokeObjectURL(url);
-    pushToast("CSV downloaded. Excel can open this file.", "success");
+    pushToast(successMessage, "success");
+  };
+
+  const downloadSheetCsv = (sheet: WorkbookSheet | undefined, sourceFilename: string) => {
+    if (!sheet || sheet.rows.length === 0) {
+      return;
+    }
+
+    const blob = new Blob([buildCsvFromSheet(sheet)], { type: "text/csv;charset=utf-8" });
+    downloadBlob(
+      blob,
+      `${filenameBase(sourceFilename)}-${sheetFilenamePart(sheet.name)}-kruzo.csv`,
+      "CSV downloaded. Excel can open this file."
+    );
+  };
+
+  const downloadWorkbook = (sheets: WorkbookSheet[] | undefined, sourceFilename: string) => {
+    const usableSheets = sheets?.filter((sheet) => sheet.rows.length > 0) ?? [];
+
+    if (usableSheets.length === 0) {
+      return;
+    }
+
+    downloadBlob(
+      buildWorkbookBlob(usableSheets),
+      `${filenameBase(sourceFilename)}-kruzo.xlsx`,
+      "XLSX downloaded. Excel can open this workbook."
+    );
   };
 
   const addCollectedFiles = (items: CollectedFile[]) => {
@@ -158,15 +187,33 @@ export const useUploadQueue = () => {
       return;
     }
 
-    downloadRows(historyItem.preview.rows, `${historyItem.file.name.replace(/\.[^.]+$/, "")}-kruzo.csv`);
+    downloadSheetCsv(historyItem.preview.sheets.find((sheet) => sheet.rows.length > 0), historyItem.file.name);
   };
 
-  const downloadActiveCsv = () => {
+  const downloadHistoryWorkbook = (id: string) => {
+    const historyItem = processingHistory.find((item) => item.id === id);
+
+    if (!historyItem || historyItem.status !== "done" || !historyItem.preview?.hasUsableData) {
+      return;
+    }
+
+    downloadWorkbook(historyItem.preview.sheets, historyItem.file.name);
+  };
+
+  const downloadActiveCsv = (sheet?: WorkbookSheet) => {
     if (!activeResultFile || activeResultFile.status !== "done" || !activeResultFile.preview?.hasUsableData) {
       return;
     }
 
-    downloadRows(activeResultFile.preview.rows, `${activeResultFile.file.name.replace(/\.[^.]+$/, "")}-kruzo.csv`);
+    downloadSheetCsv(sheet ?? activeResultFile.preview.sheets[0], activeResultFile.file.name);
+  };
+
+  const downloadActiveWorkbook = () => {
+    if (!activeResultFile || activeResultFile.status !== "done" || !activeResultFile.preview?.hasUsableData) {
+      return;
+    }
+
+    downloadWorkbook(activeResultFile.preview.sheets, activeResultFile.file.name);
   };
 
   const processSubmittedFiles = async (filesToProcess: ProcessedUpload[]) => {
@@ -291,7 +338,9 @@ export const useUploadQueue = () => {
     selectActiveResult,
     closeResultModal,
     downloadActiveCsv,
+    downloadActiveWorkbook,
     downloadHistoryCsv,
+    downloadHistoryWorkbook,
     dismissToast,
   };
 };

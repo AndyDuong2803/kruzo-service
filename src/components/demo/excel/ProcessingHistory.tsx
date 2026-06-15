@@ -16,6 +16,7 @@ type ProcessingHistoryProps = {
   modalHighlighted?: boolean;
   onViewResult: (id: string) => void;
   onDownloadCsv: (id: string) => void;
+  onDownloadWorkbook: (id: string) => void;
 };
 
 const pageSize = 10;
@@ -36,9 +37,9 @@ const statusLabel: Record<HistoryStatus, string> = {
 
 const statusClassName: Record<HistoryStatus, string> = {
   queued: "border-border bg-card text-muted",
-  processing: "border-amber-300/70 bg-amber-100 text-amber-900 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100",
-  done: "border-[var(--accent-border)] bg-[var(--accent-soft)] text-secondary",
-  failed: "border-red-300/70 bg-red-100 text-red-900 dark:border-red-400/30 dark:bg-red-400/10 dark:text-red-100",
+  processing: "border-amber-500 bg-amber-100 text-amber-950 dark:border-amber-400 dark:bg-amber-500/20 dark:text-amber-100",
+  done: "border-emerald-600 bg-emerald-100 text-emerald-900 dark:border-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-100",
+  failed: "border-red-700 bg-red-600 text-white dark:border-red-400 dark:bg-red-500 dark:text-white",
 };
 
 const resultSummary = (item: ProcessedUpload) => {
@@ -79,6 +80,7 @@ const ProcessingHistory: React.FC<ProcessingHistoryProps> = ({
   modalHighlighted = false,
   onViewResult,
   onDownloadCsv,
+  onDownloadWorkbook,
 }) => {
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const [currentPage, setCurrentPage] = useState(1);
@@ -124,7 +126,7 @@ const ProcessingHistory: React.FC<ProcessingHistoryProps> = ({
               data-tour-target="modalPreview"
               className={clsx("mt-2 text-sm text-muted", modalHighlighted && "guided-target-active rounded-lg px-2 py-1")}
             >
-              Open a result to review the workbook and download CSV.
+              Open a result to review the workbook, or download CSV/XLSX when ready.
             </p>
           </div>
         </div>
@@ -201,14 +203,24 @@ const ProcessingHistory: React.FC<ProcessingHistoryProps> = ({
                         {actionLabel(item)}
                       </button>
                       {canDownload && (
-                        <button
-                          type="button"
-                          className="brand-button brand-button-primary button-pop gap-2 px-3 py-2 text-sm"
-                          onClick={() => onDownloadCsv(item.id)}
-                        >
-                          <FiDownload aria-hidden="true" />
-                          Download CSV
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="brand-button brand-button-primary button-pop gap-2 px-3 py-2 text-sm"
+                            onClick={() => onDownloadWorkbook(item.id)}
+                          >
+                            <FiDownload aria-hidden="true" />
+                            Download XLSX
+                          </button>
+                          <button
+                            type="button"
+                            className="brand-button brand-button-secondary button-pop gap-2 px-3 py-2 text-sm"
+                            onClick={() => onDownloadCsv(item.id)}
+                          >
+                            <FiDownload aria-hidden="true" />
+                            CSV
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>
